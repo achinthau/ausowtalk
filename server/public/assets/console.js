@@ -46,7 +46,7 @@ ui.loginForm.addEventListener('submit', async (e) => {
   ui.loginBtn.textContent = 'Signing in…';
 
   try {
-    const res = await fetch('/api/login', {
+    const res = await fetch('./api/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
