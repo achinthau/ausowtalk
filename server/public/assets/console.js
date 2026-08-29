@@ -135,7 +135,17 @@ async function enterConsole(agent) {
   }
 
   try {
-    await ui.phoneEl.login({ extension: agent.extension });
+    // The <auso-phone> element holds its own phone instance and reads its
+    // credentials-url attribute. Pass baseUrl()-aware URLs via config so they
+    // override the (root-absolute) attributes and work under a /subdir/.
+    await ui.phoneEl.login({
+      extension: agent.extension,
+      config: {
+        credentialsUrl: api('api/phone/credentials'),
+        lookupUrl: api('api/customers/lookup'),
+        callRecordUrl: api('api/phone/call-records'),
+      },
+    });
   } catch (err) {
     logEvent({ event: 'error', at: new Date().toISOString(), message: err.message });
   }
