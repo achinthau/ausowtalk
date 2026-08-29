@@ -36,6 +36,28 @@ const ui = {
 let currentAgent = null;
 
 // ---------------------------------------------------------------------------
+// Path base
+// The app may be served at the web root ("/") OR under a sub-directory such as
+// "/webrtc/". All API/asset URLs must be relative to that base, not root-
+// absolute, otherwise a sub-directory deployment 404s. Resolve from the URL the
+// browser is actually on.
+// ---------------------------------------------------------------------------
+
+function baseUrl() {
+  const path = window.location.pathname;          // e.g. "/webrtc/" or "/webrtc" or "/"
+  // Split into segments and rebuild the directory portion.
+  const segs = path.split('/').filter(Boolean);
+  const isFile = ((segs[segs.length - 1] ?? '').includes('.')) || !segs.length;
+  // Drop a trailing file name (e.g. "index.html"); keep everything else as dirs.
+  const dirs = isFile ? segs.slice(0, -1) : segs;
+  if (!dirs.length) return '/';
+  return `/${dirs.join('/')}/`;
+}
+
+/** Resolve an app-relative API path (e.g. "api/login") against baseUrl(). */
+const api = (rel) => `${baseUrl()}${rel}`;
+
+// ---------------------------------------------------------------------------
 // Authentication
 // ---------------------------------------------------------------------------
 
@@ -69,7 +91,7 @@ ui.loginForm.addEventListener('submit', async (e) => {
 ui.logoutBtn.addEventListener('click', async () => {
   // Spec §13: unregister first, then close the CRM session.
   await phone.logout().catch(() => {});
-  await fetch('/api/logout', { method: 'POST' });
+  await fetch(api('api/logout'), { method: 'POST' });
   location.reload();
 });
 
@@ -84,13 +106,13 @@ async function enterConsole(agent) {
   ui.agentName.textContent = agent.name;
   ui.agentExt.textContent = `ext ${agent.extension}`;
 
-  const branding = await fetch('/api/branding').then((r) => r.json()).catch(() => ({}));
+  const branding = await fetch(api('api/branding')).then((r) => r.json()).catch(() => ({}));
 
   // Everything the phone needs to talk to "Laravel".
   phone.init({
-    credentialsUrl: '/api/phone/credentials',
-    lookupUrl: '/api/customers/lookup',
-    callRecordUrl: '/api/phone/call-records',
+    credentialsUrl: api('api/phone/credentials'),
+    lookupUrl: api('api/customers/lookup'),
+    callRecordUrl: api('api/phone/call-records'),
     branding,
     autoAnswer: Boolean(agent.auto_answer),
     logLevel: 'info',
@@ -99,7 +121,7 @@ async function enterConsole(agent) {
       enabled: true,        // browser recording available as the optional path
       autoStart: false,
       autoUpload: true,
-      uploadUrl: '/api/phone/recordings',
+      uploadUrl: api('api/phone/recordings'),
     },
   });
 
@@ -449,7 +471,7 @@ ui.simInbound.addEventListener('click', async () => {
   ui.simInbound.disabled = true;
   ui.simInbound.textContent = 'Ringing your phone…';
   try {
-    const res = await fetch('/api/simulate/inbound', {
+    const res = await fetch(api('api/simulate/inbound'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ cli: '0772615908' }),
@@ -471,7 +493,7 @@ ui.simInbound.addEventListener('click', async () => {
 // ---------------------------------------------------------------------------
 
 async function loadHealth() {
-  const h = await fetch('/api/health').then((r) => r.json()).catch(() => null);
+  const h = await fetch(api('api/health')).then((r) => r.json()).catch(() => null);
   if (!h) return;
   ui.amiState.textContent = h.ami ? 'connected' : 'not connected';
   ui.amiState.style.color = h.ami ? 'var(--success)' : 'var(--danger)';
@@ -481,7 +503,7 @@ async function loadHealth() {
 }
 
 async function loadRecentCalls() {
-  const body = await fetch('/api/calls/recent?limit=15').then((r) => r.json()).catch(() => null);
+  const body = await fetch(api('api/calls/recent?limit=15')).then((r) => r.json()).catch(() => null);
   const rows = body?.records ?? [];
   if (!rows.length) {
     ui.callsBody.innerHTML = '<tr class="empty-row"><td colspan="6">No calls yet</td></tr>';
@@ -489,8 +511,8 @@ async function loadRecentCalls() {
   }
   ui.callsBody.innerHTML = rows.map((r) => {
     const rec = r.recording_path
-      ? `<audio controls preload="none" src="/${r.recording_path}"></audio>`
-      : (r.browser_recording_path ? `<audio controls preload="none" src="/${r.browser_recording_path}"></audio>` : '—');
+      ? `<audio controls preload="none" src="${baseUrl()}${r.recording_path.replace(/^\//, '')}"></audio>`
+      : (r.browser_recording_path ? `<audio controls preload="none" src="${baseUrl()}${r.browser_recording_path.replace(/^\//, '')}"></audio>` : '—');
     return `<tr>
       <td class="num">${esc(shortTime(r.start_time))}</td>
       <td><span class="dir">${esc((r.direction ?? '?').slice(0, 3).toUpperCase())}</span></td>
@@ -504,7 +526,7 @@ async function loadRecentCalls() {
 
 /** Live CDR / AMI feed so the table updates without polling. */
 function subscribeServerEvents() {
-  const stream = new EventSource('/api/events');
+  const stream = new EventSource(api('api/events'));
   stream.onmessage = (msg) => {
     const payload = JSON.parse(msg.data);
     if (payload.type === 'asterisk_cdr' || payload.type === 'call_record') {
@@ -521,7 +543,7 @@ function subscribeServerEvents() {
 }
 
 ui.pbxRefresh.addEventListener('click', async () => {
-  const body = await fetch('/api/pbx/status').then((r) => r.json());
+  const body = await fetch(api('api/pbx/status')).then((r) => r.json());
   ui.pbxDump.hidden = false;
   ui.pbxDump.textContent = body.ami
     ? `${body.endpoints ?? ''}\n\n${body.contacts ?? ''}`.trim() || (body.error ?? 'no output')
@@ -532,7 +554,7 @@ ui.pbxRefresh.addEventListener('click', async () => {
 // Boot: resume an existing CRM session on reload
 // ---------------------------------------------------------------------------
 
-fetch('/api/me')
+fetch(api('api/me'))
   .then((r) => (r.ok ? r.json() : null))
   .then((body) => { if (body?.agent) return enterConsole(body.agent); })
   .catch(() => {});
