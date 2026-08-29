@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Auso Call Hub — Agent Console</title>
+<link rel="icon" href="/assets/logo.svg">
+<link rel="stylesheet" href="/assets/console.css">
+</head>
+<body>
+
+<!-- ===================== Login ===================== -->
+<div id="login-screen" class="login-screen">
+  <form id="login-form" class="login-card" autocomplete="on">
+    <img src="/assets/logo.svg" alt="" class="login-logo">
+    <h1>Auso Call Hub</h1>
+    <p class="sub">Agent sign-in. The phone registers to Asterisk automatically once you are authenticated — you never enter SIP credentials.</p>
+
+    <label for="email">Email</label>
+    <select id="email" name="email">
+      <option value="agent1@ausoworld.com">agent1@ausoworld.com — ext 2001</option>
+      <option value="agent2@ausoworld.com" selected>agent2@ausoworld.com — ext 2002</option>
+      <option value="agent3@ausoworld.com">agent3@ausoworld.com — ext 2003 (auto-answer)</option>
+      <option value="agent4@ausoworld.com">agent4@ausoworld.com — ext 2004</option>
+      <option value="supervisor@ausoworld.com">supervisor@ausoworld.com — ext 2005</option>
+    </select>
+
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" value="secret" autocomplete="current-password">
+
+    <button type="submit" class="primary" id="login-btn">Sign in</button>
+    <p id="login-error" class="error" hidden></p>
+  </form>
+</div>
+
+<!-- ===================== Console ===================== -->
+<div id="console" class="console" hidden>
+  <header class="topbar">
+    <img src="/assets/logo.svg" alt="" class="topbar-logo">
+    <strong>Auso Call Hub</strong>
+    <span class="topbar-sep"></span>
+    <span id="agent-name" class="agent-name"></span>
+    <span id="agent-ext" class="chip"></span>
+    <span id="reg-chip" class="chip">offline</span>
+    <span class="topbar-sep flex"></span>
+    <button id="logout-btn" class="ghost small">Sign out</button>
+  </header>
+
+  <main class="layout">
+    <!-- Left: the phone component -->
+    <section class="col col-phone">
+      <h2>Softphone</h2>
+      <auso-phone id="phone"
+                  credentials-url="/api/phone/credentials"
+                  lookup-url="/api/customers/lookup"
+                  call-record-url="/api/phone/call-records"></auso-phone>
+
+      <div class="card">
+        <h3>Try it</h3>
+        <div class="quick-actions">
+          <button class="ghost" data-dial="600">600 · Echo test</button>
+          <button class="ghost" data-dial="601">601 · Music on hold</button>
+          <button class="ghost" data-dial="602">602 · DTMF read-back</button>
+          <button class="ghost" data-dial="90772615908">Call customer (0772615908)</button>
+        </div>
+        <div class="quick-actions">
+          <button class="primary" id="sim-inbound">Simulate inbound call from 0772615908</button>
+        </div>
+        <p class="hint">
+          Open this page in a second browser tab and sign in as a different agent
+          to place a real agent-to-agent call (e.g. dial <code>2001</code>), then
+          try a blind or attended transfer to <code>2005</code>.
+        </p>
+      </div>
+    </section>
+
+    <!-- Middle: customer screen-pop + call history -->
+    <section class="col col-crm">
+      <h2>Customer</h2>
+      <div id="screen-pop" class="card screen-pop empty">
+        <p class="placeholder">No active call. The customer record appears here as
+          soon as an <code>incoming</code> event arrives, looked up by CLI.</p>
+      </div>
+
+      <h2>Recent calls</h2>
+      <div class="card table-card">
+        <table id="calls-table">
+          <thead><tr><th>When</th><th>Dir</th><th>Number</th><th>Ext</th><th>Dur</th><th>Rec</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Right: live event log -->
+    <section class="col col-events">
+      <h2>Phone events
+        <button id="clear-events" class="ghost small">Clear</button>
+      </h2>
+      <p class="hint">
+        Every event the phone exposes to Laravel/Livewire, in order. This is the
+        interface a Livewire component listens to.
+      </p>
+      <div id="event-log" class="event-log"></div>
+
+      <h2>PBX</h2>
+      <div class="card">
+        <div class="kv"><span>AMI</span><b id="ami-state">…</b></div>
+        <div class="kv"><span>SIP domain</span><b id="sip-domain">…</b></div>
+        <div class="kv"><span>WSS</span><b id="ws-url" class="mono small">…</b></div>
+        <div class="kv"><span>Credential rotation</span><b id="rotation">…</b></div>
+        <button id="pbx-refresh" class="ghost small">Show PJSIP contacts</button>
+        <pre id="pbx-dump" class="dump" hidden></pre>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script src="/vendor/auso-phone.js"></script>
+<script src="/assets/console.js" type="module"></script>
+</body>
+</html>

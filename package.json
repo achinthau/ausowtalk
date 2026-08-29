@@ -1,0 +1,18 @@
+{
+  "name": "auso-call-hub-phone",
+  "version": "1.0.0",
+  "private": true,
+  "description": "WebRTC softphone for Auso Call Hub — SIP.js + Asterisk PJSIP/WSS + Laravel",
+  "type": "module",
+  "scripts": {
+    "start": "./scripts/start.sh",
+    "stop": "./scripts/stop.sh",
+    "build": "npm --prefix packages/auso-phone run build",
+    "test:e2e": "node tests/e2e.mjs",
+    "certs": "./scripts/make-certs.sh",
+    "logs": "docker compose -f asterisk/docker-compose.yml logs -f"
+  },
+  "devDependencies": {
+    "puppeteer": "^25.9.0"
+  }
+}

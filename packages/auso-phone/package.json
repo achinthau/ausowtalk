@@ -1,0 +1,56 @@
+{
+  "name": "auso-phone",
+  "version": "1.0.0",
+  "description": "Reusable WebRTC softphone (SIP.js + Asterisk PJSIP/WSS) for Auso Call Hub",
+  "type": "module",
+  "main": "./dist/auso-phone.esm.js",
+  "module": "./dist/auso-phone.esm.js",
+  "browser": "./dist/auso-phone.js",
+  "types": "./types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "import": "./dist/auso-phone.esm.js",
+      "default": "./dist/auso-phone.js"
+    },
+    "./src/*": "./src/*",
+    "./ui/*": "./ui/*",
+    "./vue": "./ui/vue/index.js"
+  },
+  "files": [
+    "dist",
+    "src",
+    "ui",
+    "types"
+  ],
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
+    "test": "node --test test/"
+  },
+  "dependencies": {
+    "sip.js": "^0.21.2"
+  },
+  "devDependencies": {
+    "@vue/compiler-sfc": "^3.5.41",
+    "esbuild": "^0.25.0"
+  },
+  "peerDependencies": {
+    "vue": "^3.3.0"
+  },
+  "peerDependenciesMeta": {
+    "vue": {
+      "optional": true
+    }
+  },
+  "keywords": [
+    "webrtc",
+    "sip",
+    "sip.js",
+    "asterisk",
+    "softphone",
+    "laravel",
+    "call-center"
+  ],
+  "license": "MIT"
+}

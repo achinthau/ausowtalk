@@ -1,0 +1,456 @@
+Auso Call Hub — WebRTC Phone Requirements
+1. Core architecture
+
+For the first production version, I would use SIP.js or a similar modern SIP/WebRTC library rather than building SIP signaling from scratch. SIP.js specifically supports Asterisk and browser WebRTC, including hold and transfers. 
+
+
+
+
+2. Automatic registration
+This is one of your most important requirements.
+Agent login
+Agent logs into Auso Call Hub
+↓
+Laravel authenticates agent
+↓
+Laravel gets SIP credentials
+↓
+WebRTC Phone initializes
+↓
+Connect WSS
+↓
+SIP REGISTER
+↓
+Asterisk
+↓
+Registered
+The agent should not manually enter SIP username/password.
+For example, Laravel could provide:
+{
+    "extension": "2002",
+    "sip_domain": "pbx.ausoworld.com",
+    "ws_url": "wss://pbx.ausoworld.com:8089/ws",
+    "password": "clear text password"
+}
+Then:
+phone.connect();
+phone.register();
+SIP.js supports connecting and registering programmatically. 
+
+Security recommendation
+Don't expose the permanent SIP password in the HTML page.
+Use a Laravel-generated short-lived credential/token and have a backend service provision or authorize the SIP session.
+
+3. Required phone events
+I recommend defining a standard internal event API for your phone.
+Incoming call
+incoming
+Payload:
+{
+    "call_id": "abc123",
+    "direction": "inbound",
+    "cli": "0772615908"
+}
+Outgoing
+dialing
+
+Ringing
+ringing
+
+Answer
+answered
+
+Hold
+hold
+
+Unhold
+unhold
+
+Mute
+mute
+
+Unmute
+unmute
+
+Transfer
+transfer_started
+transfer_completed
+transfer_failed
+
+Hangup
+hangup
+
+Registration
+registered
+unregistered
+registration_failed
+
+Connection
+connecting
+connected
+disconnected
+
+
+
+This gives Laravel/Livewire a clean interface.
+
+4. Phone commands
+Your CRM should be able to call:
+phone.call(number);
+phone.answer();
+phone.reject();
+phone.hangup();
+
+phone.hold();
+phone.unhold();
+
+phone.mute();
+phone.unmute();
+
+phone.transfer(number);
+
+phone.sendDTMF("1");
+SIP.js already provides methods for answer, hangup, hold, unhold, mute, unmute and DTMF. 
+
+5. CLI / received number
+For an incoming call:
+Asterisk
+↓
+INVITE
+↓
+WebRTC Phone
+↓
+CLI
+↓
+Laravel CRM
+↓
+Customer lookup
+
+The phone should expose:
+phone.on("incoming", (call) => {
+
+    console.log(call.cli);
+
+});
+Example:
+{
+    "call_id": "1728291",
+    "cli": "0772615908",
+    "direction": "inbound"
+}
+
+Laravel can then search:
+customers
+WHERE phone = 0772615908
+and display:
+Incoming Call
+Customer: ABC Company
+Phone: 0772615908
+Previous Calls: 12
+Last Call: 24 Aug 2026
+
+6. Automatic answer
+You specifically requested auto answer.
+The phone should support:
+phone.setAutoAnswer(true);
+
+
+
+
+When:
+Incoming call
+↓
+Phone receives INVITE
+↓
+CRM checks auto-answer
+↓
+phone.answer()
+↓
+Call connected
+making this configurable By Admin:
+Settings
+☑ Auto Answer
+☐ Auto Answer
+and potentially allowing your campaign/queue to control it.
+
+7. Hold
+The UI:
+
+
+
+
+
+When the agent clicks Hold:
+CRM
+↓
+phone.hold()
+↓
+SIP re-INVITE
+↓
+Asterisk
+SIP.js supports hold/unhold directly. 
+
+8. Transfer
+I recommend supporting two types.
+Blind transfer
+Customer
+│
+Agent
+│
+└──── Transfer → 2005
+Attended transfer
+Customer
+    │
+Agent
+    │
+    ├── Hold Customer
+    │
+    ├── Call Agent 2005
+    │
+    ├── Talk to 2005
+    │
+    └── Complete Transfer
+This is particularly important for your call-center product.
+SIP.js lists transfer support as part of its capabilities. 
+
+9. Mute
+Mute should be local WebRTC media mute:
+Agent microphone
+↓
+Mute
+↓
+Customer cannot hear agent
+But the agent should still hear the customer.
+So:
+Microphone → OFF
+Speaker    → ON
+The phone should generate:
+mute
+unmute
+events.
+
+10. Call recording
+You mentioned:
+can record calls by the phone
+Laravel database
+This is the preferred approach for your call center because the recording is server-side and doesn't depend on the browser remaining healthy.
+Store:
+call_id
+agent_id
+customer_number
+recording_path
+start_time
+end_time
+duration
+
+browser recording
+You can also provide:
+WebRTC audio
+↓
+Browser MediaRecorder
+↓
+Upload to Laravel
+But I would make this an optional feature, not the primary call recording mechanism.
+
+11. Logo customization
+Make the phone UI configurable.
+For example:
+AusoPhone.init({
+    logo: "/images/logo.png",
+    companyName: "Auso World",
+    theme: "default"
+});
+
+Or Laravel can provide:
+{
+    "branding": {
+        "logo": "/storage/company/logo.png",
+        "company_name": "ABC Company",
+        "primary_color": "#...",
+        "show_powered_by": true
+    }
+}
+This would make your phone suitable for multi-tenant Auso Call Hub.
+
+12. Laravel integration
+I would expose a JavaScript API like:
+window.AusoPhone
+Example:
+AusoPhone.login({
+    extension: "2002"
+});
+
+AusoPhone.call("0772615908");
+AusoPhone.answer();
+AusoPhone.hangup();
+AusoPhone.hold();
+AusoPhone.unhold();
+AusoPhone.mute();
+AusoPhone.unmute();
+AusoPhone.transfer("2005");
+
+And events:
+AusoPhone.on("registered", callback);
+AusoPhone.on("incoming", callback);
+AusoPhone.on("ringing", callback);
+AusoPhone.on("answered", callback);
+AusoPhone.on("hold", callback);
+AusoPhone.on("unhold", callback);
+AusoPhone.on("mute", callback);
+
+AusoPhone.on("unmute", callback);
+AusoPhone.on("transfer", callback);
+AusoPhone.on("hangup", callback);
+
+This is particularly suitable for Laravel + Livewire, because Livewire can react to the JavaScript events rather than trying to control the SIP/WebRTC connection directly.
+
+13. Agent console integration
+Your desired workflow would be:
+Agent Login
+│
+▼
+Laravel Authentication
+│
+▼
+Agent Console Loaded
+│
+▼
+AusoPhone.initialize()
+│
+▼
+Get SIP credentials
+│
+▼
+Connect WSS
+│
+▼
+REGISTER
+│
+▼
+registered event
+│
+▼
+Agent Ready
+When agent logs out:
+Agent Logout
+↓
+phone.unregister()
+↓
+WSS disconnect
+↓
+Asterisk endpoint becomes unavailable
+↓
+Laravel session closed
+Asterisk's WebRTC registration model already supports browser endpoints registering through the PJSIP WebSocket transport. 
+
+14. Suggested phone component structure
+I would build it as a reusable package/component:
+auso-phone/
+│
+├── src/
+│   ├── AusoPhone.js
+│   ├── SIPClient.js
+│   ├── CallManager.js
+│   ├── RegistrationManager.js
+│   ├── MediaManager.js
+│   ├── TransferManager.js
+│   ├── EventManager.js
+│   └── RecordingManager.js
+│
+├── ui/
+│   ├── Phone.vue
+│   ├── DialPad.vue
+│   ├── IncomingCall.vue
+│   ├── ActiveCall.vue
+│   └── TransferDialog.vue
+│
+└── assets/
+    ├── css/
+    └── icons/
+Even though your CRM is Laravel, I would keep the real-time SIP/WebRTC code independent from Laravel.
+Laravel should provide:
+Agent authentication 
+SIP credentials/session authorization 
+Customer information 
+Call records 
+Agent status 
+Campaign information 
+Branding 
+Permissions 
+The browser phone should handle:
+SIP 
+WebRTC 
+microphone 
+speaker 
+call state 
+SIP events 
+media state 
+Asterisk should handle:
+SIP 
+RTP/SRTP 
+call routing 
+queues 
+trunks 
+recording 
+transfers 
+dialplan 
+telephony events 
+
+
+
+
+
+My recommended specification
+Requirement
+Support
+Chrome/Edge browser
+✅
+Laravel integration
+✅
+Automatic registration
+✅
+Automatic unregister
+✅
+Incoming CLI
+✅
+Outbound calls
+✅
+Answer
+✅
+Auto-answer
+✅
+Hold / Unhold
+✅
+Mute / Unmute
+✅
+Blind transfer
+✅
+Attended transfer
+✅
+Hangup
+✅
+DTMF
+✅
+Call events
+✅
+Asterisk recording
+✅
+Browser recording
+Optional
+Logo customization
+✅
+Tenant branding
+✅
+Agent login integration
+✅
+Livewire integration
+✅
+Video
+Future
+QUIC/WebTransport
+Future
+
+
+
+I would build this first with SIP.js + WebRTC + Asterisk PJSIP/WSS, rather than putting QUIC into the first production version. Your existing SIPml5 test proves that your Asterisk WebRTC infrastructure is already viable; the next step is turning that into a clean reusable phone component with the event API above. 
+One newer Asterisk option is also worth keeping in mind: Asterisk's chan_websocket can provide application/media WebSocket connectivity and supports control events such as ANSWER and HANGUP, but it is aimed at application/external-media use and is not a replacement for the normal SIP-over-WSS WebRTC phone architecture. 

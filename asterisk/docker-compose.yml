@@ -1,0 +1,34 @@
+services:
+  asterisk:
+    build: .
+    image: auso-asterisk:local
+    container_name: auso-asterisk
+    # Docker's default hostname is the container ID, which usually starts with a
+    # digit — not a legal SIP hostname label. Asterisk puts it in Contact/From,
+    # and strict parsers reject those messages. Give it an alphabetic name.
+    hostname: auso-pbx
+    restart: unless-stopped
+    ports:
+      # WSS (SIP over secure WebSocket) — what the browser phone connects to.
+      - "8089:8089/tcp"
+      # Plain WS, handy for debugging without certificates.
+      - "8088:8088/tcp"
+      # AMI, used by the mock CRM to originate simulated inbound calls.
+      - "127.0.0.1:5038:5038/tcp"
+      # RTP. Kept deliberately small — Docker Desktop is slow to publish
+      # large UDP ranges, and 10 concurrent calls is plenty for a dev box.
+      - "10000-10020:10000-10020/udp"
+    volumes:
+      - ./etc:/etc/asterisk/conf.d:ro
+      # Rewritten by the CRM on every agent login (short-lived SIP passwords).
+      - ./dynamic:/etc/asterisk/dynamic:ro
+      - ./certs:/etc/asterisk/keys:ro
+      - ./recordings:/var/spool/asterisk/recordings
+      - ./entrypoint.sh:/entrypoint.sh:ro
+    entrypoint: ["/bin/bash", "/entrypoint.sh"]
+    healthcheck:
+      test: ["CMD", "asterisk", "-rx", "core show version"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s

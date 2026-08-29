@@ -1,0 +1,8 @@
+node_modules/
+asterisk/certs/*.crt
+asterisk/certs/*.key
+asterisk/recordings/*.wav
+server/data/
+server/uploads/
+*.log
+.DS_Store
