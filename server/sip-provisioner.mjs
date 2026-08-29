@@ -168,14 +168,27 @@ export class SipProvisioner {
     ];
     const body = this.extensions.flatMap((ext) => {
       const session = this.sessions.get(ext);
-      const password = session ? session.password : `auso-dev-${ext}`;
+      let password;
+      let note = '; static development default';
+      if (session) {
+        password = session.password;
+        note = `; session issued ${new Date(session.issuedAt).toISOString()}`;
+      } else if (!this.rotate) {
+        // Against a PBX we don't manage, preserve the password already in the
+        // file (set by the admin to match the PBX) instead of resetting it to
+        // the development default, which would break registration.
+        password = this._readPassword(ext) ?? `auso-dev-${ext}`;
+        note = '; static password, matches the public PBX';
+      } else {
+        password = `auso-dev-${ext}`;
+      }
       return [
         `[${ext}-auth]`,
         'type=auth',
         'auth_type=userpass',
         `username=${ext}`,
         `password=${password}`,
-        session ? `; session issued ${new Date(session.issuedAt).toISOString()}` : '; static development default',
+        note,
         '',
       ];
     });
