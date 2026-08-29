@@ -107,6 +107,11 @@ async function enterConsole(agent) {
   await loadRecentCalls();
   subscribeServerEvents();
 
+  // Ask up front (not on the first call) so the OS popup is ready for calls.
+  if ('Notification' in window && Notification.permission === 'default') {
+    try { await Notification.requestPermission(); } catch { /* ignore */ }
+  }
+
   try {
     await ui.phoneEl.login({ extension: agent.extension });
   } catch (err) {
@@ -120,6 +125,219 @@ async function enterConsole(agent) {
 
 phone.on('*', logEvent);
 
+// Web Notification (OS popup) on an inbound call. Fires even while the tab is
+// in the background / the agent is on another tab, because 'incoming' is pushed
+// on `window` regardless of focus.
+function notifyIncoming(call) {
+  if (!call || !('Notification' in window)) return;
+  if (Notification.permission === 'default') {
+    Notification.requestPermission();
+    return;
+  }
+  if (Notification.permission !== 'granted') return;
+
+  const name = call.customer?.name;
+  const title = `Incoming call — ${call.cli}`;
+  try {
+    const n = new Notification(name ? `${name} (${call.cli})` : title, {
+      body: `Call from ${call.cli} · ${call.direction}`,
+      icon: '/assets/logo.svg',
+      tag: `incoming-${call.call_id}`,
+      requireInteraction: true,
+    });
+    // Clicking the notification focuses the window, revealing the in-page
+    // centred phone window (which has Answer / Hang up buttons).
+    n.onclick = () => { window.focus(); showCallWindow(call); n.close(); };
+    // Keep the popup visible for 15s (set to 0 to keep it until dismissed).
+    setTimeout(() => n.close(), 15000);
+  } catch {
+    /* notifications can be transiently blocked in some contexts */
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Incoming-call window — phone-sized, centred, draggable, minimisable.
+// Single SIP registration lives here in the console; this window controls it.
+// ---------------------------------------------------------------------------
+
+const cw = {
+  root: document.getElementById('call-window'),
+  titlebar: document.querySelector('.cw-titlebar'),
+  titleText: document.getElementById('cw-title-text'),
+  minimize: document.getElementById('cw-minimize'),
+  close: document.getElementById('cw-close'),
+  avatar: document.getElementById('cw-avatar'),
+  initial: document.getElementById('cw-initial'),
+  name: document.getElementById('cw-name'),
+  cli: document.getElementById('cw-cli'),
+  state: document.getElementById('cw-state'),
+  ext: document.getElementById('cw-ext'),
+  hold: document.getElementById('cw-hold'),
+  mute: document.getElementById('cw-mute'),
+  answer: document.getElementById('cw-answer'),
+  hangup: document.getElementById('cw-hangup'),
+  minimized: document.getElementById('cw-minimized'),
+  minimizedLabel: document.getElementById('cw-minimized-label'),
+};
+
+let activeCallId = null;
+let muted = false;
+let onHold = false;
+
+function showCallWindow(call) {
+  if (!call || !cw.root) return;
+  activeCallId = call.call_id ?? null;
+  muted = false;
+  onHold = false;
+
+  const customer = call.customer;
+  const known = customer && customer.found !== false;
+  const name = known && customer.name ? customer.name : 'Unknown caller';
+  cw.name.textContent = name;
+  cw.cli.textContent = call.cli ?? '—';
+  cw.initial.textContent = (name[0] || '?').toUpperCase();
+  cw.state.textContent = 'Ringing…';
+  cw.ext.textContent = currentAgent ? `Auso Call Hub · ext ${currentAgent.extension}` : '';
+
+  cw.answer.disabled = false;
+  cw.hangup.disabled = true;
+  cw.hold.disabled = false;
+  cw.mute.disabled = false;
+  cw.titleText.textContent = 'Incoming call';
+
+  // Reset any earlier minimise state.
+  cw.root.hidden = false;
+  cw.minimized.hidden = true;
+  resetWindowPosition();
+
+  restorePadLabels();
+  updateMinimizedLabel(name);
+}
+
+function hideCallWindow() {
+  if (!cw.root) return;
+  cw.root.hidden = true;
+  cw.minimized.hidden = true;
+  activeCallId = null;
+}
+
+function minimizeCallWindow() {
+  if (!cw.root) return;
+  cw.root.hidden = true;
+  cw.minimized.hidden = false;
+}
+
+function restoreCallWindow() {
+  if (!cw.root) return;
+  cw.minimized.hidden = true;
+  cw.root.hidden = false;
+  resetWindowPosition();
+}
+
+function updateMinimizedLabel(label) {
+  if (cw.minimizedLabel) cw.minimizedLabel.textContent = label;
+}
+
+function restorePadLabels() {
+  cw.hold.innerHTML = '<span class="cw-padicon">⏸</span><span class="cw-padlabel">Hold</span>';
+  cw.mute.innerHTML = '<span class="cw-padicon">🎙</span><span class="cw-padlabel">Mute</span>';
+}
+
+// ---- Dragging -------------------------------------------------------------
+
+function resetWindowPosition() {
+  // Back to centre.
+  cw.root.style.left = '50%';
+  cw.root.style.top = '50%';
+  cw.root.style.transform = 'translate(-50%, -50%)';
+  cw.root.style.margin = '0';
+}
+
+let drag = null;
+
+function startDrag(e) {
+  // Only when NOT minimised.
+  if (cw.root.hidden) return;
+  if (e.target.closest('.cw-btn')) return; // let buttons work
+  const rect = cw.root.getBoundingClientRect();
+  drag = {
+    startX: e.clientX, startY: e.clientY,
+    offsetX: e.clientX - rect.left, offsetY: e.clientY - rect.top,
+  };
+  cw.root.style.transition = 'none';
+  cw.root.style.left = `${rect.left}px`;
+  cw.root.style.top = `${rect.top}px`;
+  cw.root.style.transform = 'none';
+  cw.root.style.margin = '0';
+  e.preventDefault();
+}
+
+function onDragMove(e) {
+  if (!drag) return;
+  cw.root.style.left = `${e.clientX - drag.offsetX}px`;
+  cw.root.style.top = `${e.clientY - drag.offsetY}px`;
+}
+
+function endDrag() {
+  drag = null;
+  cw.root.style.transition = '';
+}
+
+cw.titlebar.addEventListener('mousedown', startDrag);
+window.addEventListener('mousemove', onDragMove);
+window.addEventListener('mouseup', endDrag);
+
+// ---- Buttons --------------------------------------------------------------
+
+cw.minimize.addEventListener('click', minimizeCallWindow);
+cw.close.addEventListener('click', hideCallWindow);
+cw.minimized.addEventListener('click', restoreCallWindow);
+
+cw.answer.addEventListener('click', () => {
+  cw.answer.disabled = true;
+  cw.answer.innerHTML = '<span class="cw-padicon">☎</span><span class="cw-padlabel">Answering…</span>';
+  phone.answer(activeCallId).catch((err) => {
+    logEvent({ event: 'error', at: new Date().toISOString(), message: `answer: ${err.message}` });
+    cw.answer.disabled = false;
+    cw.answer.innerHTML = '<span class="cw-padicon">☎</span><span class="cw-padlabel">Answer</span>';
+  });
+});
+
+cw.hangup.addEventListener('click', () => {
+  cw.hangup.disabled = true;
+  phone.hangup(activeCallId).catch(() => {});
+});
+
+cw.hold.addEventListener('click', async () => {
+  onHold = !onHold;
+  try {
+    if (onHold) await phone.hold(activeCallId);
+    else await phone.unhold(activeCallId);
+    cw.hold.innerHTML = `<span class="cw-padicon">${onHold ? '▶' : '⏸'}</span><span class="cw-padlabel">${onHold ? 'Resume' : 'Hold'}</span>`;
+  } catch (err) {
+    onHold = !onHold;
+    logEvent({ event: 'error', at: new Date().toISOString(), message: `hold: ${err.message}` });
+  }
+});
+
+cw.mute.addEventListener('click', async () => {
+  muted = !muted;
+  try {
+    if (muted) await phone.mute(activeCallId);
+    else await phone.unmute(activeCallId);
+    cw.mute.innerHTML = `<span class="cw-padicon">${muted ? '🔇' : '🎙'}</span><span class="cw-padlabel">${muted ? 'Unmute' : 'Mute'}</span>`;
+  } catch (err) {
+    muted = !muted;
+    logEvent({ event: 'error', at: new Date().toISOString(), message: `mute: ${err.message}` });
+  }
+});
+
+phone.on('incoming', ({ call }) => {
+  renderScreenPop(call);
+  showCallWindow(call);
+  notifyIncoming(call);
+});
+
 phone.on('registered', () => setRegChip('registered', 'registered'));
 phone.on('registration_failed', () => setRegChip('failed', 'reg failed'));
 phone.on('unregistered', () => setRegChip('', 'unregistered'));
@@ -129,13 +347,24 @@ phone.on('disconnected', () => setRegChip('failed', 'disconnected'));
 // Screen-pop. The phone has already asked Laravel for the customer by the time
 // `call_updated` fires with a customer attached; `incoming` gets us on screen
 // immediately with just the CLI.
-phone.on('incoming', ({ call }) => renderScreenPop(call));
 phone.on('dialing', ({ call }) => renderScreenPop(call));
-phone.on('answered', ({ call }) => renderScreenPop(call));
-phone.on('call_updated', ({ call }) => { if (call) renderScreenPop(call); });
+phone.on('answered', ({ call }) => {
+  renderScreenPop(call);
+  if (cw.root && !cw.root.hidden) {
+    cw.state.textContent = 'On call';
+    cw.answer.disabled = true;
+    cw.hangup.disabled = false;
+    cw.titleText.textContent = 'On call';
+  }
+});
+phone.on('call_updated', ({ call }) => {
+  if (call) renderScreenPop(call);
+  if (call && call.state) cw.state.textContent = call.state;
+});
 
 phone.on('hangup', () => {
   renderScreenPop(null);
+  hideCallWindow();
   // Give the server a moment to store the record the phone just posted.
   setTimeout(loadRecentCalls, 600);
 });

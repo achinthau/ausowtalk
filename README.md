@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Auso Call Hub — WebRTC Phone
 
 A reusable browser softphone for the Auso Call Hub call centre, built to the
@@ -234,3 +235,6 @@ Deliberately out of scope, matching the spec's own "Future" rows: video calls,
 and QUIC/WebTransport. The spec is explicit that the first production version
 should be SIP.js + WebRTC + Asterisk PJSIP/WSS, and that `chan_websocket` is not
 a replacement for it.
+=======
+# ausowtalk
+>>>>>>> c69a93902019becbcb39542384da99f1566e0e13

@@ -115,6 +115,39 @@
   </main>
 </div>
 
+<!-- ===================== Incoming call window ===================== -->
+<div id="call-window" class="call-window" hidden>
+  <div class="cw-titlebar">
+    <div class="cw-title"><span class="cw-dot"></span><span id="cw-title-text">Incoming call</span></div>
+    <div class="cw-titlebtns">
+      <button id="cw-minimize" class="cw-btn" title="Minimise">—</button>
+      <button id="cw-close" class="cw-btn" title="Close">×</button>
+    </div>
+  </div>
+
+  <div class="cw-body">
+    <div id="cw-avatar" class="cw-avatar"><span id="cw-initial">?</span></div>
+    <div id="cw-name" class="cw-name">Unknown caller</div>
+    <div id="cw-cli" class="cw-cli"></div>
+    <div id="cw-state" class="cw-state">Ringing…</div>
+    <div id="cw-ext" class="cw-ext"></div>
+  </div>
+
+  <div class="cw-pad">
+    <div class="cw-pad-row">
+      <button id="cw-hold" class="cw-padbtn" disabled><span class="cw-padicon">⏸</span><span class="cw-padlabel">Hold</span></button>
+      <button id="cw-mute" class="cw-padbtn" disabled><span class="cw-padicon">🎙</span><span class="cw-padlabel">Mute</span></button>
+    </div>
+    <div class="cw-pad-row cw-mainrow">
+      <button id="cw-answer" class="cw-padbtn cw-answer"><span class="cw-padicon">☎</span><span class="cw-padlabel">Answer</span></button>
+      <button id="cw-hangup" class="cw-padbtn cw-hangup" disabled><span class="cw-padicon">📞</span><span class="cw-padlabel">Hang up</span></button>
+    </div>
+  </div>
+</div>
+
+<!-- Minimised tab for the call window -->
+<button id="cw-minimized" class="cw-minimized" hidden>📞 Incoming call — <span id="cw-minimized-label"></span></button>
+
 <script src="/vendor/auso-phone.js"></script>
 <script src="/assets/console.js" type="module"></script>
 </body>
