@@ -154,7 +154,7 @@ function seed() {
 
   return {
     branding: {
-      logo: '/assets/logo.svg',
+      logo: './assets/logo.svg',
       company_name: 'Auso World',
       primary_color: '#0f766e',
       show_powered_by: true,

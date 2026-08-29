@@ -141,7 +141,7 @@ function notifyIncoming(call) {
   try {
     const n = new Notification(name ? `${name} (${call.cli})` : title, {
       body: `Call from ${call.cli} · ${call.direction}`,
-      icon: '/assets/logo.svg',
+      icon: './assets/logo.svg',
       tag: `incoming-${call.call_id}`,
       requireInteraction: true,
     });
