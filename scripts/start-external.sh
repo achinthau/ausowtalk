@@ -22,7 +22,7 @@ command -v node >/dev/null || { echo "ERROR: node is not installed" >&2; exit 1;
 
 export SIP_DOMAIN="${SIP_DOMAIN:-connectxp.ausoworld.com}"
 export SIP_WS_URL="${SIP_WS_URL:-wss://connectxp.ausoworld.com/ws}"
-export SIP_EXTENSIONS="${SIP_EXTENSIONS:-2002}"
+export SIP_EXTENSIONS="${SIP_EXTENSIONS:-2001,2002,2003,2004,2005,}"
 export SIP_ROTATE="${SIP_ROTATE:-0}"
 export PORT="${PORT:-8080}"
 

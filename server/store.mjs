@@ -11,7 +11,28 @@ export class Store {
   constructor(file) {
     this.file = file;
     this.data = this._load();
+    // Backfill any agent missing a SIP password (e.g. an existing db.json that
+    // predates per-agent sip_password), without losing call records/customers.
+    this._backfillSipPasswords();
     this._writeTimer = null;
+  }
+
+  _backfillSipPasswords() {
+    const defaults = [
+      ['2001', 'auso-dev-2001'],
+      ['2002', 'Auso@2002'],
+      ['2003', 'auso-dev-2003'],
+      ['2004', 'auso-dev-2004'],
+      ['2005', 'auso-dev-2005'],
+    ];
+    let changed = false;
+    for (const agent of this.data.agents) {
+      if (agent.sip_password) continue;
+      const def = defaults.find(([ext]) => String(ext) === String(agent.extension));
+      agent.sip_password = def ? def[1] : `auso-dev-${agent.extension}`;
+      changed = true;
+    }
+    if (changed) this.save();
   }
 
   _load() {
@@ -44,6 +65,34 @@ export class Store {
 
   findAgent(id) {
     return this.data.agents.find((a) => a.id === id) ?? null;
+  }
+
+  findAgentByExtension(extension) {
+    return this.data.agents.find((a) => String(a.extension) === String(extension)) ?? null;
+  }
+
+  /** The SIP password for an extension, from the agent record in db.json. */
+  sipPasswordFor(extension) {
+    return this.findAgentByExtension(extension)?.sip_password ?? null;
+  }
+
+  /** Whether an agent has SIP credentials configured in db.json. */
+  sipProvisioned(agent) {
+    return Boolean(agent?.extension && agent.sip_password);
+  }
+
+  /**
+   * Store the agent's SIP extension + password in db.json. Until the agent
+   * changes them, every login auto-registers with these values.
+   */
+  setSipCredentials(agentId, { extension, password }) {
+    const agent = this.findAgent(agentId);
+    if (!agent) throw new Error('Unknown agent');
+    if (!extension || !password) throw new Error('Extension and password are required');
+    agent.extension = String(extension);
+    agent.sip_password = password;
+    this.save();
+    return agent;
   }
 
   // ---- Customers (spec §5) ----------------------------------------------
@@ -161,11 +210,11 @@ function seed() {
       theme: 'default',
     },
     agents: [
-      { id: 1, name: 'Nimal Perera', email: 'agent1@ausoworld.com', password: 'secret', extension: '2001', role: 'agent', auto_answer: false },
-      { id: 2, name: 'Kamala Silva', email: 'agent2@ausoworld.com', password: 'secret', extension: '2002', role: 'agent', auto_answer: false },
-      { id: 3, name: 'Ruwan Fernando', email: 'agent3@ausoworld.com', password: 'secret', extension: '2003', role: 'agent', auto_answer: true },
-      { id: 4, name: 'Ayesha Jayawardena', email: 'agent4@ausoworld.com', password: 'secret', extension: '2004', role: 'agent', auto_answer: false },
-      { id: 5, name: 'Supervisor', email: 'supervisor@ausoworld.com', password: 'secret', extension: '2005', role: 'supervisor', auto_answer: false },
+      { id: 1, name: 'Nimal Perera', email: 'agent1@ausoworld.com', password: 'secret', extension: '2001', sip_password: 'auso-dev-2001', role: 'agent', auto_answer: false },
+      { id: 2, name: 'Kamala Silva', email: 'agent2@ausoworld.com', password: 'secret', extension: '2002', sip_password: 'Auso@2002', role: 'agent', auto_answer: false },
+      { id: 3, name: 'Ruwan Fernando', email: 'agent3@ausoworld.com', password: 'secret', extension: '2003', sip_password: 'auso-dev-2003', role: 'agent', auto_answer: true },
+      { id: 4, name: 'Ayesha Jayawardena', email: 'agent4@ausoworld.com', password: 'secret', extension: '2004', sip_password: 'auso-dev-2004', role: 'agent', auto_answer: false },
+      { id: 5, name: 'Supervisor', email: 'supervisor@ausoworld.com', password: 'secret', extension: '2005', sip_password: 'auso-dev-2005', role: 'supervisor', auto_answer: false },
     ],
     customers: [
       {

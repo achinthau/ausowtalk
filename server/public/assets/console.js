@@ -107,6 +107,11 @@ async function enterConsole(agent) {
   ui.agentExt.textContent = `ext ${agent.extension}`;
 
   const branding = await fetch(api('api/branding')).then((r) => r.json()).catch(() => ({}));
+  const health = await fetch(api('api/health')).then((r) => r.json()).catch(() => ({}));
+  const sipConfig = {
+    sipDomain: health.sip_domain ?? '',
+    wsUrl: health.ws_url ?? '',
+  };
 
   // Everything the phone needs to talk to "Laravel".
   phone.init({
@@ -134,20 +139,38 @@ async function enterConsole(agent) {
     try { await Notification.requestPermission(); } catch { /* ignore */ }
   }
 
-  try {
+  const phoneConfig = {
     // The <auso-phone> element holds its own phone instance and reads its
     // credentials-url attribute. Pass baseUrl()-aware URLs via config so they
     // override the (root-absolute) attributes and work under a /subdir/.
-    await ui.phoneEl.login({
-      extension: agent.extension,
-      config: {
-        credentialsUrl: api('api/phone/credentials'),
-        lookupUrl: api('api/customers/lookup'),
-        callRecordUrl: api('api/phone/call-records'),
-      },
+    credentialsUrl: api('api/phone/credentials'),
+    lookupUrl: api('api/customers/lookup'),
+    callRecordUrl: api('api/phone/call-records'),
+    sipCredentialsUrl: api('api/phone/sip-credentials'),
+    sipDomain: sipConfig.sipDomain,
+    wsUrl: sipConfig.wsUrl,
+  };
+
+  if (agent.sip_provisioned) {
+    // Credentials live in db.json → fetch them and auto-register.
+    try {
+      await ui.phoneEl.login({
+        extension: agent.extension,
+        config: phoneConfig,
+      });
+    } catch (err) {
+      logEvent({ event: 'error', at: new Date().toISOString(), message: err.message });
+    }
+  } else {
+    // No SIP credentials configured → don't register yet; let the agent enter
+    // their extension + password in Settings and register from there.
+    ui.phoneEl.sipExtension = agent.extension ?? '';
+    ui.phoneEl.openSettings();
+    logEvent({
+      event: 'info',
+      at: new Date().toISOString(),
+      message: `No SIP credentials for ${agent.extension ?? 'your account'} — enter them in Settings and Save & register.`,
     });
-  } catch (err) {
-    logEvent({ event: 'error', at: new Date().toISOString(), message: err.message });
   }
 }
 
@@ -209,7 +232,6 @@ const cw = {
   answer: document.getElementById('cw-answer'),
   hangup: document.getElementById('cw-hangup'),
   minimized: document.getElementById('cw-minimized'),
-  minimizedLabel: document.getElementById('cw-minimized-label'),
 };
 
 let activeCallId = null;
@@ -232,7 +254,7 @@ function showCallWindow(call) {
   cw.ext.textContent = currentAgent ? `Auso Call Hub · ext ${currentAgent.extension}` : '';
 
   cw.answer.disabled = false;
-  cw.hangup.disabled = true;
+  cw.hangup.disabled = false;
   cw.hold.disabled = false;
   cw.mute.disabled = false;
   cw.titleText.textContent = 'Incoming call';
@@ -243,7 +265,6 @@ function showCallWindow(call) {
   resetWindowPosition();
 
   restorePadLabels();
-  updateMinimizedLabel(name);
 }
 
 function hideCallWindow() {
@@ -266,10 +287,6 @@ function restoreCallWindow() {
   resetWindowPosition();
 }
 
-function updateMinimizedLabel(label) {
-  if (cw.minimizedLabel) cw.minimizedLabel.textContent = label;
-}
-
 function restorePadLabels() {
   cw.hold.innerHTML = '<span class="cw-padicon">⏸</span><span class="cw-padlabel">Hold</span>';
   cw.mute.innerHTML = '<span class="cw-padicon">🎙</span><span class="cw-padlabel">Mute</span>';
@@ -286,36 +303,40 @@ function resetWindowPosition() {
 }
 
 let drag = null;
+let dragMoved = false;
 
-function startDrag(e) {
-  // Only when NOT minimised.
-  if (cw.root.hidden) return;
+function startDrag(e, el) {
+  el = el ?? cw.root;
+  if (el.hidden) return;
   if (e.target.closest('.cw-btn')) return; // let buttons work
-  const rect = cw.root.getBoundingClientRect();
+  const rect = el.getBoundingClientRect();
   drag = {
+    el,
     startX: e.clientX, startY: e.clientY,
     offsetX: e.clientX - rect.left, offsetY: e.clientY - rect.top,
   };
-  cw.root.style.transition = 'none';
-  cw.root.style.left = `${rect.left}px`;
-  cw.root.style.top = `${rect.top}px`;
-  cw.root.style.transform = 'none';
-  cw.root.style.margin = '0';
+  dragMoved = false;
+  el.style.transition = 'none';
+  el.style.left = `${rect.left}px`;
+  el.style.top = `${rect.top}px`;
+  el.style.transform = 'none';
+  el.style.margin = '0';
   e.preventDefault();
 }
 
 function onDragMove(e) {
   if (!drag) return;
-  cw.root.style.left = `${e.clientX - drag.offsetX}px`;
-  cw.root.style.top = `${e.clientY - drag.offsetY}px`;
+  if (Math.abs(e.clientX - drag.startX) + Math.abs(e.clientY - drag.startY) > 4) dragMoved = true;
+  drag.el.style.left = `${e.clientX - drag.offsetX}px`;
+  drag.el.style.top = `${e.clientY - drag.offsetY}px`;
 }
 
 function endDrag() {
   drag = null;
-  cw.root.style.transition = '';
 }
 
-cw.titlebar.addEventListener('mousedown', startDrag);
+cw.titlebar.addEventListener('mousedown', (e) => startDrag(e, cw.root));
+cw.minimized.addEventListener('mousedown', (e) => startDrag(e, cw.minimized));
 window.addEventListener('mousemove', onDragMove);
 window.addEventListener('mouseup', endDrag);
 
@@ -323,7 +344,11 @@ window.addEventListener('mouseup', endDrag);
 
 cw.minimize.addEventListener('click', minimizeCallWindow);
 cw.close.addEventListener('click', hideCallWindow);
-cw.minimized.addEventListener('click', restoreCallWindow);
+cw.minimized.addEventListener('click', () => {
+  // A drag (not a click) shouldn't restore the window.
+  if (dragMoved) { dragMoved = false; return; }
+  restoreCallWindow();
+});
 
 cw.answer.addEventListener('click', () => {
   cw.answer.disabled = true;

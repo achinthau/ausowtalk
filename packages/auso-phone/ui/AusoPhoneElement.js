@@ -35,6 +35,8 @@ export class AusoPhoneElement extends HTMLElement {
     this.transferType = 'blind';
     this.errorMessage = '';
     this.devices = { inputs: [], outputs: [] };
+    this.sipExtension = '';
+    this.sipPassword = '';
     this._unsubscribers = [];
     this._rendered = false;
   }
@@ -75,6 +77,7 @@ export class AusoPhoneElement extends HTMLElement {
       credentialsUrl: this.getAttribute('credentials-url') ?? undefined,
       lookupUrl: this.getAttribute('lookup-url') ?? undefined,
       callRecordUrl: this.getAttribute('call-record-url') ?? undefined,
+      sipCredentialsUrl: this.getAttribute('sip-credentials-url') ?? undefined,
       autoAnswer: this.hasAttribute('auto-answer'),
       traceSip: this.hasAttribute('trace-sip'),
       branding: this._brandingFromAttributes(),
@@ -89,6 +92,8 @@ export class AusoPhoneElement extends HTMLElement {
     try {
       this.configure(opts.config);
       const status = await this.phone.login(opts);
+      const ext = status.agent?.extension ?? status.extension ?? opts.extension;
+      if (ext) this.sipExtension = String(ext);
       this.devices = await this.phone.listDevices().catch(() => this.devices);
       this.render();
       return status;
@@ -97,6 +102,43 @@ export class AusoPhoneElement extends HTMLElement {
       this.render();
       throw err;
     }
+  }
+
+  /** Open the Settings panel (used when an agent has no SIP credentials yet). */
+  openSettings() {
+    this.view = 'settings';
+    this.errorMessage = '';
+    this.render();
+  }
+
+  /**
+   * Save an agent-entered extension + password to the server, then register
+   * directly with it (bypasses the server provisioner).
+   */
+  async saveSipCredentials() {
+    const ext = String(this.sipExtension ?? '').trim();
+    if (!ext || !this.sipPassword) {
+      this.errorMessage = 'Extension and password are required';
+      this.render();
+      throw new Error('Extension and password are required');
+    }
+    const url = this.phone.config.sipCredentialsUrl;
+    if (!url) throw new Error('No SIP credentials endpoint configured');
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ extension: ext, password: this.sipPassword }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.message ?? 'Could not save SIP credentials');
+    // Register with the new credentials; drop any existing registration first so
+    // the changed extension/password takes effect cleanly.
+    if (this.phone.status().registered) {
+      await this.phone.logout().catch(() => {});
+    }
+    await this.login({ credentials: body });
+    return this.phone.status();
   }
 
   logout() {
@@ -331,6 +373,18 @@ export class AusoPhoneElement extends HTMLElement {
       `<option value="${esc(d.deviceId)}" ${d.deviceId === selected ? 'selected' : ''}>${esc(d.label)}</option>`).join('');
     return `<div class="panel">
       <h4>Settings</h4>
+      <div class="field">
+        <label for="sip-ext">SIP extension</label>
+        <input id="sip-ext" type="text" inputmode="numeric" placeholder="e.g. 2002"
+               value="${esc(this.sipExtension)}" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="sip-pass">SIP password</label>
+        <input id="sip-pass" type="password" placeholder="•••••••"
+               value="${esc(this.sipPassword)}" autocomplete="off">
+      </div>
+      <div class="hint" style="margin-bottom:12px">Used to register with the PBX.
+        Saved so you don't re-enter it on the next sign-in.</div>
       <label class="toggle">
         <input type="checkbox" data-action="auto-answer" ${s.auto_answer ? 'checked' : ''}>
         <span>Auto answer incoming calls</span>
@@ -346,9 +400,10 @@ export class AusoPhoneElement extends HTMLElement {
       </div>
       <div class="btn-row">
         <button class="btn btn-ghost" data-action="close-panel">Close</button>
+        <button class="btn btn-primary" data-action="save-sip-credentials">${icons.phone}Save &amp; register</button>
         ${s.registered
           ? '<button class="btn btn-danger" data-action="logout">Unregister</button>'
-          : '<button class="btn btn-primary" data-action="login">Register</button>'}
+          : ''}
       </div>
     </div>`;
   }
@@ -389,6 +444,16 @@ export class AusoPhoneElement extends HTMLElement {
       });
       target.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && this.transferTarget) this._handle('do-transfer');
+      });
+    }
+
+    const sipExt = root.getElementById('sip-ext');
+    if (sipExt) sipExt.addEventListener('input', (e) => { this.sipExtension = e.target.value; });
+    const sipPass = root.getElementById('sip-pass');
+    if (sipPass) {
+      sipPass.addEventListener('input', (e) => { this.sipPassword = e.target.value; });
+      sipPass.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') this._handle('save-sip-credentials');
       });
     }
   }
@@ -461,6 +526,7 @@ export class AusoPhoneElement extends HTMLElement {
           return this.render();
         case 'set-input': return void (await this.phone.setInputDevice(event.target.value));
         case 'set-output': return void (await this.phone.setOutputDevice(event.target.value));
+        case 'save-sip-credentials': return void (await this.saveSipCredentials());
         case 'login': return void (await this.login());
         case 'logout': return void (await this.logout());
         default: return;

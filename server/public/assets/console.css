@@ -246,16 +246,29 @@ auso-phone { width: 100%; }
 .cw-padbtn.cw-answer:disabled, .cw-padbtn.cw-hangup:disabled { opacity: .55; }
 .cw-mainrow { grid-template-columns: 1fr 1fr; }
 
-/* ---- Minimised tab ---- */
+/* ---- Minimised call: small round draggable icon ---- */
 .cw-minimized {
   position: fixed;
-  bottom: 20px; left: 50%; transform: translateX(-50%);
+  width: 52px; height: 52px;
+  bottom: 20px; right: 20px;
   z-index: 1001;
-  display: inline-flex; align-items: center; gap: 8px;
+  display: inline-flex; align-items: center; justify-content: center;
   background: var(--brand); color: #fff;
-  padding: 10px 18px; border-radius: 999px; border: 0;
-  font-weight: 650; font-size: 13px; cursor: pointer;
-  box-shadow: 0 12px 30px rgba(15, 23, 42, .3);
+  border-radius: 50%; border: 0;
+  padding: 0;
+  cursor: pointer;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, .35);
   animation: cw-in .18s ease-out;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 .cw-minimized:hover { filter: brightness(.94); }
+.cw-minimized .cw-mini-icon {
+  font-size: 22px; line-height: 1;
+  animation: cw-pulse 1.5s ease-in-out infinite;
+}
+@keyframes cw-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.18); opacity: .85; }
+}

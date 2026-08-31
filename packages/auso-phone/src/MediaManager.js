@@ -25,9 +25,27 @@ export class MediaManager {
     this.activeTone = null;
     this.devices = { inputs: [], outputs: [] };
 
+    // Web Audio noise suppression DSP (noise gate + high-pass).
+    // ON by default so background noise is suppressed. Routing through Web Audio
+    // can weaken the browser's native echo cancellation, but the gate is gentle
+    // (never muting the voice) and the source still captures with native AEC/NS/
+    // AGC on the raw stream.
+    this.noiseGate = options.noiseGate !== false;
+    /** @type {{ context, source, destination, worklet } | null} */
+    this._dsp = null;
+    this._micProxyInstalled = false;
+    this._originalGetUserMedia = null;
+
     this._onDeviceChange = () => {
       this.enumerate().catch((err) => log.warn('device enumeration failed', err));
     };
+  }
+
+  /** Enable/disable the Web Audio noise-gate + high-pass processing. */
+  setNoiseGate(enabled) {
+    this.noiseGate = Boolean(enabled);
+    if (this.noiseGate) this._installMicProxy();
+    else this._uninstallMicProxy();
   }
 
   /** Create the hidden <audio> element the remote stream is attached to. */
@@ -42,14 +60,21 @@ export class MediaManager {
     this.remoteAudio = el;
 
     navigator.mediaDevices?.addEventListener?.('devicechange', this._onDeviceChange);
+    if (this.noiseGate) this._installMicProxy();
     return el;
   }
 
   destroy() {
+    if (navigator.mediaDevices && this._originalGetUserMedia) {
+      navigator.mediaDevices.getUserMedia = this._originalGetUserMedia;
+    }
+    this._originalGetUserMedia = null;
+    this._micProxyInstalled = false;
     navigator.mediaDevices?.removeEventListener?.('devicechange', this._onDeviceChange);
     this.stopTone();
     this.toneContext?.close().catch(() => {});
     this.toneContext = null;
+    this._teardownDsp();
     this.remoteAudio?.remove();
     this.remoteAudio = null;
   }
@@ -61,7 +86,10 @@ export class MediaManager {
    */
   async requestPermission() {
     this.assertSecureContext();
-    const stream = await navigator.mediaDevices.getUserMedia(this.getConstraints());
+    // Use the raw getUserMedia (not the DSP proxy): this only asks permission and
+    // releases the track immediately — there is nothing to process.
+    const gUM = this._originalGetUserMedia ?? ((c) => navigator.mediaDevices.getUserMedia(c));
+    const stream = await gUM(this.getConstraints());
     stream.getTracks().forEach((t) => t.stop());
     await this.enumerate();
     return true;
@@ -89,10 +117,94 @@ export class MediaManager {
   }
 
   getConstraints() {
-    const audio = this.inputDeviceId
-      ? { deviceId: { exact: this.inputDeviceId }, echoCancellation: true, noiseSuppression: true }
-      : { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+    // Ask the browser for full acoustic processing at capture time. These are
+    // *requests* — a device/driver that lacks AEC/AGC/NS drops them, so always
+    // request all three regardless of whether a specific device is chosen.
+    const audio = {
+      ...(this.inputDeviceId ? { deviceId: { exact: this.inputDeviceId } } : {}),
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+    };
     return { audio, video: false };
+  }
+
+  // ---- Noise suppression DSP (Web Audio) ---------------------------------
+  // The browser's native noise suppression handles steady background noise but
+  // not other people's voices. We route the mic through a high-pass filter plus
+  // an AudioWorklet noise gate that closes when nobody is speaking, so quiet
+  // conference-room chatter is attenuated while the agent's voice opens it.
+
+  /**
+   * Wrap `navigator.mediaDevices.getUserMedia` so any audio-only request (ours
+   * or SIP.js) returns the processed mic stream. Non-audio requests pass
+   * through untouched.
+   */
+  _installMicProxy() {
+    if (this._micProxyInstalled) return;
+    const md = navigator.mediaDevices;
+    if (!md?.getUserMedia) return;
+    this._originalGetUserMedia = md.getUserMedia.bind(md);
+    const self = this;
+    md.getUserMedia = async (constraints) => {
+      // Only intercept audio-only requests; let video/exact passthrough.
+      if (!constraints?.video && constraints?.audio) {
+        return self._getProcessedAudioStream(constraints);
+      }
+      return self._originalGetUserMedia(constraints);
+    };
+    this._micProxyInstalled = true;
+    log.info('noise-suppression DSP armed (noise gate + high-pass)');
+  }
+
+  _uninstallMicProxy() {
+    if (!this._micProxyInstalled) return;
+    if (navigator.mediaDevices && this._originalGetUserMedia) {
+      navigator.mediaDevices.getUserMedia = this._originalGetUserMedia;
+    }
+    this._micProxyInstalled = false;
+    this._teardownDsp();
+  }
+
+  async _getProcessedAudioStream(constraints) {
+    // Browsers ignore echoCancellation:true when the processed stream is fed
+    // back into WebRTC, so apply AEC/AGC at the raw capture stage.
+    const raw = await this._originalGetUserMedia(constraints);
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      const context = new Ctx();
+      await context.audioWorklet.addModule(createNoiseGateWorkletURL());
+      const source = context.createMediaStreamSource(raw);
+      const highpass = context.createBiquadFilter();
+      highpass.type = 'highpass';
+      highpass.frequency.value = 120; // cut rumble/AC hum
+      const worklet = new AudioWorkletNode(context, 'auso-noise-gate', {
+        numberOfInputs: 1,
+        numberOfOutputs: 1,
+        parameterData: { threshold: -60, ratio: 3, floor: -32, attack: 0.05, release: 0.3 },
+      });
+      const destination = context.createMediaStreamDestination();
+      source.connect(highpass);
+      highpass.connect(worklet);
+      worklet.connect(destination);
+
+      this._dsp = { context, source, raw, destination };
+      return destination.stream;
+    } catch (err) {
+      log.warn('noise-gate setup failed — falling back to raw mic', err);
+      this._teardownDsp();
+      return raw;
+    }
+  }
+
+  _teardownDsp() {
+    if (!this._dsp) return;
+    try {
+      this._dsp.source?.disconnect();
+      this._dsp.raw?.getTracks().forEach((t) => t.stop());
+      this._dsp.context?.close();
+    } catch (err) { /* ignore */ }
+    this._dsp = null;
   }
 
   async enumerate() {
@@ -228,4 +340,82 @@ export class MediaManager {
 
 function pickDevice(d) {
   return { deviceId: d.deviceId, label: d.label || `${d.kind} (${d.deviceId.slice(0, 6)})`, kind: d.kind };
+}
+
+/**
+ * The AudioWorklet source for the noise gate, delivered as a Blob URL so it
+ * ships inside the bundled IIFE with no extra file to fetch.
+ *
+ * The gate is a RMS-tracking expander: when the smoothed signal level drops
+ * below `threshold` it reduces gain toward `floor` (attenuating background
+ * voices/noise when nobody is speaking), and when signal rises above threshold
+ * it opens back up with a configurable attack. Attack/release are smoothed so
+ * the gate doesn't chop words.
+ */
+const NOISE_GATE_WORKLET = `
+// A gentle RMS-tracking expander / noise gate.
+// - Threshold: only material BELOW this level gets attenuated, so genuine
+//   speech (which is much louder) passes untouched and stays natural.
+// - Ratio is low (mild expansion, not a hard gate) so nothing is ever chopped.
+// - Floor is moderate: the quiet gaps between sentences are softened, never
+//   silenced to digital zero.
+class AusoNoiseGate extends AudioWorkletProcessor {
+  static get parameterDescriptors() {
+    return [
+      { name: 'threshold', defaultValue: -60, minValue: -120, maxValue: 0 },
+      { name: 'ratio', defaultValue: 3, minValue: 1, maxValue: 20 },
+      { name: 'floor', defaultValue: -32, minValue: -120, maxValue: 0 },
+      { name: 'attack', defaultValue: 0.05, minValue: 0.001, maxValue: 1 },
+      { name: 'release', defaultValue: 0.30, minValue: 0.01, maxValue: 2 },
+    ];
+  }
+  constructor() {
+    super();
+    this.gain = 1;  // current linear gain
+    this.env = 0;   // envelope (mean square)
+  }
+  process(inputs, outputs, parameters) {
+    const threshold = parameters.threshold[0];
+    const ratioDB = parameters.ratio[0];
+    const floorDB = parameters.floor[0];
+    const floorLin = Math.pow(10, floorDB / 20);
+    const atkCoef = 1 - Math.exp(-1 / (parameters.attack[0] * sampleRate));
+    const relCoef = 1 - Math.exp(-1 / (parameters.release[0] * sampleRate));
+
+    const input = inputs[0];
+    const output = outputs[0];
+    const n = Math.min(input.length, output.length);
+    for (let ch = 0; ch < n; ch++) {
+      const inBuf = input[ch];
+      const outBuf = output[ch];
+      if (!inBuf) { if (outBuf && outBuf.length) outBuf.fill(0); continue; }
+      for (let i = 0; i < outBuf.length; i++) {
+        const x = inBuf[i];
+        // Fast-attack / slow-release mean-square detector.
+        const coef = (x * x) > this.env ? 0.3 : 0.002;
+        this.env += coef * (x * x - this.env);
+        const envDb = 10 * Math.log10(this.env + 1e-12);
+
+        let target;
+        if (envDb >= threshold) {
+          target = 1;                       // speech -> wide open
+        } else {
+          const below = threshold - envDb;  // how far under the threshold
+          target = Math.pow(10, (below * ratioDB) / 20); // mild expansion
+          target = Math.min(1, Math.max(floorLin, target));
+        }
+        const coef2 = target > this.gain ? atkCoef : relCoef;
+        this.gain += coef2 * (target - this.gain);
+        this.gain = Math.min(1, Math.max(floorLin, this.gain));
+        outBuf[i] = x * this.gain;
+      }
+    }
+    return true;
+  }
+}
+registerProcessor('auso-noise-gate', AusoNoiseGate);
+`;
+
+function createNoiseGateWorkletURL() {
+  return URL.createObjectURL(new Blob([NOISE_GATE_WORKLET], { type: 'application/javascript' }));
 }

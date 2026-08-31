@@ -41,7 +41,8 @@ const config = {
   cdrToken: process.env.CDR_TOKEN ?? 'auso-dev-cdr-token',
   // What the browser is told to connect to. Override to point at a real PBX.
   sipDomain: process.env.SIP_DOMAIN ?? 'localhost',
-  wsUrl: process.env.SIP_WS_URL ?? 'wss://localhost:8089/ws',
+  // wsUrl: process.env.SIP_WS_URL ?? 'wss://localhost:8089/ws',
+  wsUrl: process.env.SIP_WS_URL ?? 'wss://connectxp.ausoworld.com/ws',
   extensions: (process.env.SIP_EXTENSIONS ?? '2001,2002,2003,2004,2005').split(','),
   credentialTtl: Number(process.env.SIP_CREDENTIAL_TTL ?? 3600),
   // Set to 0 to hand out the static passwords in dynamic/pjsip_auth.conf instead
@@ -71,6 +72,9 @@ const provisioner = new SipProvisioner({
   extensions: config.extensions,
   ttlSeconds: config.credentialTtl,
   rotate: config.rotateCredentials,
+  // Source of truth for non-rotating (external PBX) mode: the per-agent SIP
+  // password stored in db.json. Storage.password lives on the agent row.
+  getSipPassword: (extension) => store.sipPasswordFor(extension),
 });
 
 fs.mkdirSync(config.browserRecordings, { recursive: true });
@@ -93,6 +97,46 @@ router.get('/api/health', (req, res) => json(res, 200, {
 }));
 
 router.get('/api/branding', (req, res) => json(res, 200, store.branding));
+
+// ---- SIP extension + password management (manual registration) ------------
+
+/** Static SIP config so the browser can REGISTER directly without the local
+ * provisioner (useful when an extension isn't seeded in db.json). */
+router.get('/api/phone/sip-config', (req, res) => {
+  const session = sessions.get(req);
+  if (!session) return json(res, 401, { message: 'Unauthenticated' });
+  return json(res, 200, {
+    sip_domain: config.sipDomain,
+    ws_url: config.wsUrl,
+    rotate_credentials: config.rotateCredentials,
+  });
+});
+
+/** Persist an agent's SIP extension + password so login auto-registers with
+ * them, then return the exact credentials the phone needs to connect. */
+router.post('/api/phone/sip-credentials', async (req, res) => {
+  const session = sessions.get(req);
+  if (!session) return json(res, 401, { message: 'Unauthenticated' });
+  const agent = store.findAgent(session.agentId);
+  if (!agent) return json(res, 401, { message: 'Unknown agent' });
+
+  const { extension, password } = await readJson(req);
+  if (!extension || !password) {
+    return json(res, 400, { message: 'Extension and password are required' });
+  }
+
+  const saved = store.setSipCredentials(agent.id, { extension, password });
+  return json(res, 200, {
+    extension: saved.extension,
+    sip_domain: config.sipDomain,
+    ws_url: config.wsUrl,
+    password: saved.sip_password,
+    // Extras the phone understands.
+    display_name: saved.name,
+    register_expires: 300,
+    ice_servers: [],
+  });
+});
 
 // ---- Authentication (stands in for Laravel's auth guard) ------------------
 
@@ -455,8 +499,12 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
 
 function publicAgent(agent) {
   if (!agent) return null;
-  const { password, ...rest } = agent;
-  return rest;
+  // Expose the CRM login password AND the SIP password on the wire? No.
+  // The SIP password is handed to the browser separately by the credentials
+  // endpoint (it must be — the phone needs it to REGISTER). Neither belongs
+  // inside the public agent object.
+  const { password, sip_password, ...rest } = agent;
+  return { ...rest, sip_provisioned: Boolean(agent.extension && agent.sip_password) };
 }
 
 function clientKey(req) {

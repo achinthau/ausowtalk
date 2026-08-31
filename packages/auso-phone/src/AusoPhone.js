@@ -34,6 +34,10 @@ const DEFAULT_CONFIG = {
   registerExpires: 300,
   autoAnswer: false,
   autoAnswerDelayMs: 0,
+  /** Extra Web Audio noise gate. ON by default so background noise is actually
+   * suppressed. Routing through Web Audio can weaken the browser's native echo
+   * cancellation, so it can be disabled via `init({ noiseGate: false })`. */
+  noiseGate: true,
   /** Re-fetch credentials this many seconds before the token expires. */
   credentialRefreshLeadSeconds: 60,
   traceSip: false,
@@ -102,6 +106,7 @@ export class AusoPhone {
 
     setLogLevel(this.config.logLevel);
     this.media.attach();
+    this.media.setNoiseGate(Boolean(this.config.noiseGate));
     this.calls.setAutoAnswer(this.config.autoAnswer, { delayMs: this.config.autoAnswerDelayMs });
     this.initialised = true;
     log.info('initialised', { credentialsUrl: this.config.credentialsUrl });

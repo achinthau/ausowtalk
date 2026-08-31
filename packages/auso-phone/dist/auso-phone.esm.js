@@ -13701,9 +13701,19 @@ var MediaManager = class {
     this.toneContext = null;
     this.activeTone = null;
     this.devices = { inputs: [], outputs: [] };
+    this.noiseGate = options.noiseGate !== false;
+    this._dsp = null;
+    this._micProxyInstalled = false;
+    this._originalGetUserMedia = null;
     this._onDeviceChange = () => {
       this.enumerate().catch((err) => log5.warn("device enumeration failed", err));
     };
+  }
+  /** Enable/disable the Web Audio noise-gate + high-pass processing. */
+  setNoiseGate(enabled) {
+    this.noiseGate = Boolean(enabled);
+    if (this.noiseGate) this._installMicProxy();
+    else this._uninstallMicProxy();
   }
   /** Create the hidden <audio> element the remote stream is attached to. */
   attach(container = document.body) {
@@ -13716,14 +13726,21 @@ var MediaManager = class {
     container.appendChild(el);
     this.remoteAudio = el;
     navigator.mediaDevices?.addEventListener?.("devicechange", this._onDeviceChange);
+    if (this.noiseGate) this._installMicProxy();
     return el;
   }
   destroy() {
+    if (navigator.mediaDevices && this._originalGetUserMedia) {
+      navigator.mediaDevices.getUserMedia = this._originalGetUserMedia;
+    }
+    this._originalGetUserMedia = null;
+    this._micProxyInstalled = false;
     navigator.mediaDevices?.removeEventListener?.("devicechange", this._onDeviceChange);
     this.stopTone();
     this.toneContext?.close().catch(() => {
     });
     this.toneContext = null;
+    this._teardownDsp();
     this.remoteAudio?.remove();
     this.remoteAudio = null;
   }
@@ -13734,7 +13751,8 @@ var MediaManager = class {
    */
   async requestPermission() {
     this.assertSecureContext();
-    const stream = await navigator.mediaDevices.getUserMedia(this.getConstraints());
+    const gUM = this._originalGetUserMedia ?? ((c) => navigator.mediaDevices.getUserMedia(c));
+    const stream = await gUM(this.getConstraints());
     stream.getTracks().forEach((t) => t.stop());
     await this.enumerate();
     return true;
@@ -13754,8 +13772,83 @@ var MediaManager = class {
     );
   }
   getConstraints() {
-    const audio = this.inputDeviceId ? { deviceId: { exact: this.inputDeviceId }, echoCancellation: true, noiseSuppression: true } : { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+    const audio = {
+      ...this.inputDeviceId ? { deviceId: { exact: this.inputDeviceId } } : {},
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true
+    };
     return { audio, video: false };
+  }
+  // ---- Noise suppression DSP (Web Audio) ---------------------------------
+  // The browser's native noise suppression handles steady background noise but
+  // not other people's voices. We route the mic through a high-pass filter plus
+  // an AudioWorklet noise gate that closes when nobody is speaking, so quiet
+  // conference-room chatter is attenuated while the agent's voice opens it.
+  /**
+   * Wrap `navigator.mediaDevices.getUserMedia` so any audio-only request (ours
+   * or SIP.js) returns the processed mic stream. Non-audio requests pass
+   * through untouched.
+   */
+  _installMicProxy() {
+    if (this._micProxyInstalled) return;
+    const md = navigator.mediaDevices;
+    if (!md?.getUserMedia) return;
+    this._originalGetUserMedia = md.getUserMedia.bind(md);
+    const self = this;
+    md.getUserMedia = async (constraints) => {
+      if (!constraints?.video && constraints?.audio) {
+        return self._getProcessedAudioStream(constraints);
+      }
+      return self._originalGetUserMedia(constraints);
+    };
+    this._micProxyInstalled = true;
+    log5.info("noise-suppression DSP armed (noise gate + high-pass)");
+  }
+  _uninstallMicProxy() {
+    if (!this._micProxyInstalled) return;
+    if (navigator.mediaDevices && this._originalGetUserMedia) {
+      navigator.mediaDevices.getUserMedia = this._originalGetUserMedia;
+    }
+    this._micProxyInstalled = false;
+    this._teardownDsp();
+  }
+  async _getProcessedAudioStream(constraints) {
+    const raw = await this._originalGetUserMedia(constraints);
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      const context = new Ctx();
+      await context.audioWorklet.addModule(createNoiseGateWorkletURL());
+      const source = context.createMediaStreamSource(raw);
+      const highpass = context.createBiquadFilter();
+      highpass.type = "highpass";
+      highpass.frequency.value = 120;
+      const worklet = new AudioWorkletNode(context, "auso-noise-gate", {
+        numberOfInputs: 1,
+        numberOfOutputs: 1,
+        parameterData: { threshold: -60, ratio: 3, floor: -32, attack: 0.05, release: 0.3 }
+      });
+      const destination = context.createMediaStreamDestination();
+      source.connect(highpass);
+      highpass.connect(worklet);
+      worklet.connect(destination);
+      this._dsp = { context, source, raw, destination };
+      return destination.stream;
+    } catch (err) {
+      log5.warn("noise-gate setup failed \u2014 falling back to raw mic", err);
+      this._teardownDsp();
+      return raw;
+    }
+  }
+  _teardownDsp() {
+    if (!this._dsp) return;
+    try {
+      this._dsp.source?.disconnect();
+      this._dsp.raw?.getTracks().forEach((t) => t.stop());
+      this._dsp.context?.close();
+    } catch (err) {
+    }
+    this._dsp = null;
   }
   async enumerate() {
     const all = await navigator.mediaDevices.enumerateDevices();
@@ -13876,6 +13969,72 @@ var MediaManager = class {
 };
 function pickDevice(d) {
   return { deviceId: d.deviceId, label: d.label || `${d.kind} (${d.deviceId.slice(0, 6)})`, kind: d.kind };
+}
+var NOISE_GATE_WORKLET = `
+// A gentle RMS-tracking expander / noise gate.
+// - Threshold: only material BELOW this level gets attenuated, so genuine
+//   speech (which is much louder) passes untouched and stays natural.
+// - Ratio is low (mild expansion, not a hard gate) so nothing is ever chopped.
+// - Floor is moderate: the quiet gaps between sentences are softened, never
+//   silenced to digital zero.
+class AusoNoiseGate extends AudioWorkletProcessor {
+  static get parameterDescriptors() {
+    return [
+      { name: 'threshold', defaultValue: -60, minValue: -120, maxValue: 0 },
+      { name: 'ratio', defaultValue: 3, minValue: 1, maxValue: 20 },
+      { name: 'floor', defaultValue: -32, minValue: -120, maxValue: 0 },
+      { name: 'attack', defaultValue: 0.05, minValue: 0.001, maxValue: 1 },
+      { name: 'release', defaultValue: 0.30, minValue: 0.01, maxValue: 2 },
+    ];
+  }
+  constructor() {
+    super();
+    this.gain = 1;  // current linear gain
+    this.env = 0;   // envelope (mean square)
+  }
+  process(inputs, outputs, parameters) {
+    const threshold = parameters.threshold[0];
+    const ratioDB = parameters.ratio[0];
+    const floorDB = parameters.floor[0];
+    const floorLin = Math.pow(10, floorDB / 20);
+    const atkCoef = 1 - Math.exp(-1 / (parameters.attack[0] * sampleRate));
+    const relCoef = 1 - Math.exp(-1 / (parameters.release[0] * sampleRate));
+
+    const input = inputs[0];
+    const output = outputs[0];
+    const n = Math.min(input.length, output.length);
+    for (let ch = 0; ch < n; ch++) {
+      const inBuf = input[ch];
+      const outBuf = output[ch];
+      if (!inBuf) { if (outBuf && outBuf.length) outBuf.fill(0); continue; }
+      for (let i = 0; i < outBuf.length; i++) {
+        const x = inBuf[i];
+        // Fast-attack / slow-release mean-square detector.
+        const coef = (x * x) > this.env ? 0.3 : 0.002;
+        this.env += coef * (x * x - this.env);
+        const envDb = 10 * Math.log10(this.env + 1e-12);
+
+        let target;
+        if (envDb >= threshold) {
+          target = 1;                       // speech -> wide open
+        } else {
+          const below = threshold - envDb;  // how far under the threshold
+          target = Math.pow(10, (below * ratioDB) / 20); // mild expansion
+          target = Math.min(1, Math.max(floorLin, target));
+        }
+        const coef2 = target > this.gain ? atkCoef : relCoef;
+        this.gain += coef2 * (target - this.gain);
+        this.gain = Math.min(1, Math.max(floorLin, this.gain));
+        outBuf[i] = x * this.gain;
+      }
+    }
+    return true;
+  }
+}
+registerProcessor('auso-noise-gate', AusoNoiseGate);
+`;
+function createNoiseGateWorkletURL() {
+  return URL.createObjectURL(new Blob([NOISE_GATE_WORKLET], { type: "application/javascript" }));
 }
 
 // src/RecordingManager.js
@@ -14098,6 +14257,10 @@ var DEFAULT_CONFIG = {
   registerExpires: 300,
   autoAnswer: false,
   autoAnswerDelayMs: 0,
+  /** Extra Web Audio noise gate. ON by default so background noise is actually
+   * suppressed. Routing through Web Audio can weaken the browser's native echo
+   * cancellation, so it can be disabled via `init({ noiseGate: false })`. */
+  noiseGate: true,
   /** Re-fetch credentials this many seconds before the token expires. */
   credentialRefreshLeadSeconds: 60,
   traceSip: false,
@@ -14148,6 +14311,7 @@ var AusoPhone = class {
     this.recorder.config = this.config;
     setLogLevel(this.config.logLevel);
     this.media.attach();
+    this.media.setNoiseGate(Boolean(this.config.noiseGate));
     this.calls.setAutoAnswer(this.config.autoAnswer, { delayMs: this.config.autoAnswerDelayMs });
     this.initialised = true;
     log8.info("initialised", { credentialsUrl: this.config.credentialsUrl });
@@ -14772,6 +14936,8 @@ var AusoPhoneElement = class extends HTMLElement {
     this.transferType = "blind";
     this.errorMessage = "";
     this.devices = { inputs: [], outputs: [] };
+    this.sipExtension = "";
+    this.sipPassword = "";
     this._unsubscribers = [];
     this._rendered = false;
   }
@@ -14805,6 +14971,7 @@ var AusoPhoneElement = class extends HTMLElement {
       credentialsUrl: this.getAttribute("credentials-url") ?? void 0,
       lookupUrl: this.getAttribute("lookup-url") ?? void 0,
       callRecordUrl: this.getAttribute("call-record-url") ?? void 0,
+      sipCredentialsUrl: this.getAttribute("sip-credentials-url") ?? void 0,
       autoAnswer: this.hasAttribute("auto-answer"),
       traceSip: this.hasAttribute("trace-sip"),
       branding: this._brandingFromAttributes(),
@@ -14818,6 +14985,8 @@ var AusoPhoneElement = class extends HTMLElement {
     try {
       this.configure(opts.config);
       const status = await this.phone.login(opts);
+      const ext = status.agent?.extension ?? status.extension ?? opts.extension;
+      if (ext) this.sipExtension = String(ext);
       this.devices = await this.phone.listDevices().catch(() => this.devices);
       this.render();
       return status;
@@ -14826,6 +14995,40 @@ var AusoPhoneElement = class extends HTMLElement {
       this.render();
       throw err;
     }
+  }
+  /** Open the Settings panel (used when an agent has no SIP credentials yet). */
+  openSettings() {
+    this.view = "settings";
+    this.errorMessage = "";
+    this.render();
+  }
+  /**
+   * Save an agent-entered extension + password to the server, then register
+   * directly with it (bypasses the server provisioner).
+   */
+  async saveSipCredentials() {
+    const ext = String(this.sipExtension ?? "").trim();
+    if (!ext || !this.sipPassword) {
+      this.errorMessage = "Extension and password are required";
+      this.render();
+      throw new Error("Extension and password are required");
+    }
+    const url = this.phone.config.sipCredentialsUrl;
+    if (!url) throw new Error("No SIP credentials endpoint configured");
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ extension: ext, password: this.sipPassword })
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.message ?? "Could not save SIP credentials");
+    if (this.phone.status().registered) {
+      await this.phone.logout().catch(() => {
+      });
+    }
+    await this.login({ credentials: body });
+    return this.phone.status();
   }
   logout() {
     return this.phone.logout().finally(() => this.render());
@@ -15046,6 +15249,18 @@ var AusoPhoneElement = class extends HTMLElement {
     const opt = (list, selected) => list.map((d) => `<option value="${esc(d.deviceId)}" ${d.deviceId === selected ? "selected" : ""}>${esc(d.label)}</option>`).join("");
     return `<div class="panel">
       <h4>Settings</h4>
+      <div class="field">
+        <label for="sip-ext">SIP extension</label>
+        <input id="sip-ext" type="text" inputmode="numeric" placeholder="e.g. 2002"
+               value="${esc(this.sipExtension)}" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="sip-pass">SIP password</label>
+        <input id="sip-pass" type="password" placeholder="\u2022\u2022\u2022\u2022\u2022\u2022\u2022"
+               value="${esc(this.sipPassword)}" autocomplete="off">
+      </div>
+      <div class="hint" style="margin-bottom:12px">Used to register with the PBX.
+        Saved so you don't re-enter it on the next sign-in.</div>
       <label class="toggle">
         <input type="checkbox" data-action="auto-answer" ${s.auto_answer ? "checked" : ""}>
         <span>Auto answer incoming calls</span>
@@ -15061,7 +15276,8 @@ var AusoPhoneElement = class extends HTMLElement {
       </div>
       <div class="btn-row">
         <button class="btn btn-ghost" data-action="close-panel">Close</button>
-        ${s.registered ? '<button class="btn btn-danger" data-action="logout">Unregister</button>' : '<button class="btn btn-primary" data-action="login">Register</button>'}
+        <button class="btn btn-primary" data-action="save-sip-credentials">${icons.phone}Save &amp; register</button>
+        ${s.registered ? '<button class="btn btn-danger" data-action="logout">Unregister</button>' : ""}
       </div>
     </div>`;
   }
@@ -15096,6 +15312,19 @@ var AusoPhoneElement = class extends HTMLElement {
       });
       target.addEventListener("keydown", (e) => {
         if (e.key === "Enter" && this.transferTarget) this._handle("do-transfer");
+      });
+    }
+    const sipExt = root.getElementById("sip-ext");
+    if (sipExt) sipExt.addEventListener("input", (e) => {
+      this.sipExtension = e.target.value;
+    });
+    const sipPass = root.getElementById("sip-pass");
+    if (sipPass) {
+      sipPass.addEventListener("input", (e) => {
+        this.sipPassword = e.target.value;
+      });
+      sipPass.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") this._handle("save-sip-credentials");
       });
     }
   }
@@ -15176,6 +15405,8 @@ var AusoPhoneElement = class extends HTMLElement {
           return void await this.phone.setInputDevice(event.target.value);
         case "set-output":
           return void await this.phone.setOutputDevice(event.target.value);
+        case "save-sip-credentials":
+          return void await this.saveSipCredentials();
         case "login":
           return void await this.login();
         case "logout":

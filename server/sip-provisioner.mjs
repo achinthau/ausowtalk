@@ -23,12 +23,15 @@ export class SipProvisioner {
    * @param {number} opts.ttlSeconds  how long an issued credential is advertised as valid
    * @param {boolean} opts.rotate     false → hand out the static file password
    */
-  constructor({ authFile, ami, extensions, ttlSeconds = 3600, rotate = true }) {
+  constructor({ authFile, ami, extensions, ttlSeconds = 3600, rotate = true, getSipPassword }) {
     this.authFile = authFile;
     this.ami = ami;
     this.extensions = extensions;
     this.ttlSeconds = ttlSeconds;
     this.rotate = rotate;
+    // Optional resolver extension -> SIP password (e.g. from db.json's agents).
+    // When provided and rotate=false it is the source of truth for passwords.
+    this.getSipPassword = getSipPassword ?? null;
     /** @type {Map<string, {password: string, issuedAt: number, expiresAt: number}>} */
     this.sessions = new Map();
     /** Serialises reloads so two simultaneous logins can't interleave writes. */
@@ -44,6 +47,18 @@ export class SipProvisioner {
   issue(extension, { force = false } = {}) {
     if (!this.extensions.includes(extension)) {
       throw new Error(`Extension ${extension} is not provisioned on the PBX`);
+    }
+
+    // If a clear-text password is configured for this extension (e.g. the
+    // per-agent sip_password in db.json), ALWAYS hand that out verbatim. This
+    // is what an external/unmanaged PBX needs — rotation generates passwords
+    // Asterisk does not know. Rotation is only used for extensions with no
+    // stored password (a dynamic, CRM-provisioned PBX).
+    const configured = this.getSipPassword
+      ? this.getSipPassword(extension)
+      : this._readPassword(extension);
+    if (configured) {
+      return Promise.resolve({ password: configured, expires_in: this.ttlSeconds, rotated: false });
     }
 
     if (!this.rotate) {
@@ -174,11 +189,13 @@ export class SipProvisioner {
         password = session.password;
         note = `; session issued ${new Date(session.issuedAt).toISOString()}`;
       } else if (!this.rotate) {
-        // Against a PBX we don't manage, preserve the password already in the
-        // file (set by the admin to match the PBX) instead of resetting it to
-        // the development default, which would break registration.
-        password = this._readPassword(ext) ?? `auso-dev-${ext}`;
-        note = '; static password, matches the public PBX';
+        // Against a PBX we don't manage, use the per-agent SIP password from
+        // db.json when available; otherwise preserve what is in the file so a
+        // hand-set value (for an extension with no agent row) survives.
+        password = this.getSipPassword
+          ? (this.getSipPassword(ext) ?? this._readPassword(ext) ?? `auso-dev-${ext}`)
+          : (this._readPassword(ext) ?? `auso-dev-${ext}`);
+        note = '; static password from db.json agent record';
       } else {
         password = `auso-dev-${ext}`;
       }
