@@ -3,6 +3,20 @@ export type CallState = 'new' | 'dialing' | 'ringing' | 'answered' | 'held' | 'e
 export type RegistrationState = 'unregistered' | 'registering' | 'registered' | 'failed';
 export type ConnectionState = 'disconnected' | 'connecting' | 'connected';
 
+/**
+ * Which tab holds the SIP registration. A WebRTC call cannot be moved between
+ * tabs, so exactly one tab is the `owner` and every other one mirrors it.
+ */
+export type SessionRole = 'owner' | 'companion';
+
+export interface SessionInfo {
+  role: SessionRole;
+  /** True when this tab is showing another tab's call rather than its own. */
+  mirrored: boolean;
+  tab_id: string | null;
+  enabled: boolean;
+}
+
 export type PhoneEventName =
   | 'connecting' | 'connected' | 'disconnected'
   | 'registered' | 'unregistered' | 'registration_failed'
@@ -10,7 +24,9 @@ export type PhoneEventName =
   | 'hold' | 'unhold' | 'mute' | 'unmute'
   | 'transfer' | 'transfer_started' | 'transfer_completed' | 'transfer_failed'
   | 'dtmf' | 'recording_started' | 'recording_stopped' | 'recording_uploaded'
-  | 'call_updated' | 'devices_changed' | 'error'
+  | 'call_updated' | 'devices_changed'
+  | 'session_state' | 'session_role'
+  | 'error'
   | '*';
 
 /** The payload shape documented in spec §3 and §5. */
@@ -78,6 +94,11 @@ export interface AusoPhoneConfig {
   autoAnswer?: boolean;
   autoAnswerDelayMs?: number;
   credentialRefreshLeadSeconds?: number;
+  /** Coordinate tabs so only one registers the extension; the rest mirror it. */
+  sessionSync?: boolean;
+  sessionChannel?: string;
+  /** Scopes the cross-tab session to one agent. */
+  extension?: string | null;
   traceSip?: boolean;
   logLevel?: 'debug' | 'info' | 'warn' | 'error' | 'silent';
   branding?: Branding;
@@ -94,6 +115,8 @@ export interface PhoneStatus {
   connection: ConnectionState;
   registration: RegistrationState;
   registered: boolean;
+  /** True while a backgrounded-tab recovery is rebuilding the socket. */
+  recovering: boolean;
   extension: string | null;
   agent: Record<string, unknown> | null;
   auto_answer: boolean;
@@ -102,6 +125,7 @@ export interface PhoneStatus {
   calls: CallPayload[];
   transfer: PendingTransfer | null;
   credentials_expire_at: string | null;
+  session: SessionInfo;
 }
 
 export interface PendingTransfer {

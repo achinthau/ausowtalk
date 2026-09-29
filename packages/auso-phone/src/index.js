@@ -7,6 +7,7 @@
  */
 import { AusoPhone, phone } from './AusoPhone.js';
 import { AusoPhoneElement, defineAusoPhoneElement } from '../ui/AusoPhoneElement.js';
+import { SessionRole } from './SessionCoordinator.js';
 import {
   ALL_EVENTS,
   CallState,
@@ -28,6 +29,7 @@ export {
   ConnectionState,
   Direction,
   RegistrationState,
+  SessionRole,
   ALL_EVENTS,
   TRANSFER_UMBRELLA,
   setLogLevel,
@@ -40,6 +42,7 @@ Object.assign(phone, {
   Direction,
   RegistrationState,
   ConnectionState,
+  SessionRole,
   setLogLevel,
   version: '1.0.0',
 });

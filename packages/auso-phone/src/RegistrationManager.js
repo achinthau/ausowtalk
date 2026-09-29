@@ -16,6 +16,8 @@ export class RegistrationManager {
     this.events = events;
     /** @type {Registerer|null} */
     this.registerer = null;
+    /** The UserAgent the live Registerer was built from. */
+    this.userAgent = null;
     this.state = RegistrationState.UNREGISTERED;
     this.expires = 300;
     this.extension = null;
@@ -40,6 +42,7 @@ export class RegistrationManager {
 
     if (this.registerer) await this.dispose();
 
+    this.userAgent = userAgent;
     this.registerer = new Registerer(userAgent, {
       expires: this.expires,
       // Asterisk is happy with the default Contact; a stable instance id keeps
@@ -90,16 +93,40 @@ export class RegistrationManager {
       log.debug('registerer dispose', err);
     }
     this.registerer = null;
+    this.userAgent = null;
     this._setState(RegistrationState.UNREGISTERED);
   }
 
-  /** Re-REGISTER after the websocket comes back up. */
+  /**
+   * True when the live Registerer still belongs to this UserAgent.
+   *
+   * A Registerer is bound to the UserAgent it was constructed from, so once the
+   * transport has been rebuilt the old one is useless — refreshing it would
+   * REGISTER against an object that is no longer connected to anything and the
+   * registrar would never hear about it.
+   */
+  isBoundTo(userAgent) {
+    return Boolean(this.registerer) && this.userAgent === userAgent;
+  }
+
+  /**
+   * Re-REGISTER over the existing transport.
+   *
+   * Resolves true only when the registrar actually answered. Over a socket the
+   * OS reaped while the tab was backgrounded the request is written into a dead
+   * buffer and we wait out a full transaction timeout, so swallowing that here is
+   * what leaves the phone "registered" in the UI but unable to receive a call.
+   *
+   * @returns {Promise<boolean>} whether the registrar acknowledged us
+   */
   async refresh() {
-    if (!this.registerer) return;
+    if (!this.registerer) return false;
     try {
       await this.registerer.register();
+      return true;
     } catch (err) {
       log.warn('re-register failed', err);
+      return false;
     }
   }
 

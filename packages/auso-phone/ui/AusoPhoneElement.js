@@ -78,6 +78,9 @@ export class AusoPhoneElement extends HTMLElement {
       lookupUrl: this.getAttribute('lookup-url') ?? undefined,
       callRecordUrl: this.getAttribute('call-record-url') ?? undefined,
       sipCredentialsUrl: this.getAttribute('sip-credentials-url') ?? undefined,
+      // Scopes the cross-tab channel and lease to this agent, so two agents
+      // sharing a browser profile never contend for the same owner slot.
+      extension: this.getAttribute('extension') ?? undefined,
       autoAnswer: this.hasAttribute('auto-answer'),
       traceSip: this.hasAttribute('trace-sip'),
       branding: this._brandingFromAttributes(),
@@ -162,6 +165,11 @@ export class AusoPhoneElement extends HTMLElement {
     ];
     watched.forEach((e) => this._unsubscribers.push(this.phone.on(e, rerender)));
 
+    // A companion tab sees no SIP events of its own — it renders whatever the
+    // owning tab publishes, once a second and on every change.
+    this._unsubscribers.push(this.phone.on(PhoneEvents.SESSION_STATE, rerender));
+    this._unsubscribers.push(this.phone.on(PhoneEvents.SESSION_ROLE, rerender));
+
     this._unsubscribers.push(
       this.phone.on(PhoneEvents.ERROR, ({ message, fatal }) => {
         if (fatal !== false) this.errorMessage = message;
@@ -231,9 +239,14 @@ export class AusoPhoneElement extends HTMLElement {
       [RegistrationState.UNREGISTERED]: ['', s.connection === 'connected' ? 'Connected' : 'Offline'],
     };
     const [cls, text] = map[s.registration] ?? ['', 'Offline'];
+    // Be explicit about which tab is actually on the line. The call audio lives
+    // wherever the owner is, so an agent needs to know that before they start
+    // talking into a companion tab.
+    const mirroring = s.session?.mirrored;
     return `<div class="status">
-      <span class="dot ${cls}"></span><span>${esc(text)}</span>
+      <span class="dot ${cls}"></span><span>${esc(mirroring ? 'Mirroring another tab' : text)}</span>
       <span class="spacer"></span>
+      ${mirroring ? '<span class="pill" title="This tab follows the tab holding the call. Its microphone is not in use.">Following</span>' : ''}
       ${s.auto_answer ? '<span class="pill">Auto answer</span>' : ''}
       ${!s.registered ? '<button class="icon-btn" data-action="login" title="Connect" style="color:var(--auso-muted)">' + icons.phone + '</button>' : ''}
     </div>`;

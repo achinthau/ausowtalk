@@ -40,6 +40,15 @@ export const PhoneEvents = Object.freeze({
   RECORDING_UPLOADED: 'recording_uploaded',
   CALL_UPDATED: 'call_updated',
   DEVICES_CHANGED: 'devices_changed',
+
+  /**
+   * Cross-tab session. `session_state` fires in a companion tab whenever the
+   * owning tab publishes a new phone state; `session_role` fires when this tab
+   * becomes the owner or starts mirroring another one.
+   */
+  SESSION_STATE: 'session_state',
+  SESSION_ROLE: 'session_role',
+
   ERROR: 'error',
 });
 
