@@ -24,8 +24,15 @@ export class CallManager {
     this.activeCallId = null;
     this.autoAnswer = false;
     this.autoAnswerDelayMs = 0;
-    /** Guard against answering an inbound call while already on one. */
-    this.maxConcurrentCalls = 2; // primary + one consultation leg
+    /**
+     * One call per extension. An agent who is already on a call must not end up
+     * on a second one, so a second simultaneous INVITE is answered with 486
+     * Busy Here and the caller hears the engaged tone rather than silence.
+     *
+     * The consultation leg of an attended transfer is deliberately outside this
+     * count — see `_isExtensionBusy`.
+     */
+    this.maxConcurrentCalls = 1;
 
     this._durationTimer = null;
   }
@@ -51,6 +58,35 @@ export class CallManager {
     return this.autoAnswer;
   }
 
+  /** One call per extension. Raise it only if a deployment really needs more. */
+  setMaxConcurrentCalls(n) {
+    this.maxConcurrentCalls = Math.max(1, Number(n) || 1);
+    return this.maxConcurrentCalls;
+  }
+
+  /**
+   * Is the extension already committed to a call that blocks another one?
+   *
+   * A call that has ended logically but whose dialog has not reached
+   * Terminated still occupies the AOR, so it counts too — otherwise a second
+   * INVITE landing in the teardown window would be accepted on top of it, which
+   * is the exact overlap this guard exists to prevent. Ended calls are dropped
+   * from `this.calls` five seconds after they end, so a dialog that somehow
+   * never terminates stops blocking after that rather than wedging the phone.
+   *
+   * @param {object} [opts]
+   * @param {boolean} [opts.addingConsultation] the new leg is a transfer
+   *   consultation, which is allowed to sit alongside the one customer call it
+   *   belongs to, so that customer leg does not count against it
+   */
+  _isExtensionBusy({ addingConsultation = false } = {}) {
+    const occupying = [...this.calls.values()].filter((c) => {
+      if (addingConsultation && !c.consultation) return false;
+      return c.isActive || c.session.state !== SessionState.Terminated;
+    });
+    return occupying.length >= this.maxConcurrentCalls;
+  }
+
   // ---- Outbound ----------------------------------------------------------
 
   /**
@@ -62,6 +98,13 @@ export class CallManager {
    * @param {Record<string,string>} [opts.extraHeaders] e.g. X-Campaign-Id
    */
   async call(userAgent, number, opts = {}) {
+    // A consultation leg is the one call allowed alongside another: an attended
+    // transfer is meant to put the agent on two legs at once, with the customer
+    // held, and TransferManager dials it while the customer call is still up.
+    if (this._isExtensionBusy({ addingConsultation: Boolean(opts.consultation) })) {
+      throw new Error('Already on a call — hang up before dialling another number');
+    }
+
     const target = this._makeTarget(userAgent, number);
     if (!target) throw new Error(`Invalid dial target: ${number}`);
 
@@ -114,9 +157,15 @@ export class CallManager {
    * @param {import('sip.js').Invitation} invitation
    */
   handleInvite(invitation) {
-    if (this.list().length >= this.maxConcurrentCalls) {
-      log.warn('rejecting INVITE — too many concurrent calls');
-      invitation.reject({ statusCode: 486 }).catch(() => {});
+    if (this._isExtensionBusy()) {
+      // Busy, not unavailable: the caller should hear engaged, and the call must
+      // never reach the agent's screen or their microphone.
+      log.warn('rejecting INVITE — extension is already on a call', {
+        on: this.list().map((c) => c.call_id),
+      });
+      invitation
+        .reject({ statusCode: 486, reasonPhrase: 'Extension busy' })
+        .catch(() => {});
       return;
     }
 

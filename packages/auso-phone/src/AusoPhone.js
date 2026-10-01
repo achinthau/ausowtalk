@@ -71,6 +71,15 @@ const DEFAULT_CONFIG = {
   sessionSync: true,
   /** BroadcastChannel name; the extension is appended to scope it per agent. */
   sessionChannel: 'auso-phone',
+  /**
+   * One call per extension. A second simultaneous INVITE is rejected with 486
+   * Busy Here so the caller hears engaged instead of silence, and a second
+   * outbound dial is refused rather than sent to the PBX.
+   *
+   * The attended-transfer consultation leg is exempt either way: it is
+   * deliberately a second leg, with the customer held.
+   */
+  maxConcurrentCalls: 1,
   autoAnswer: false,
   autoAnswerDelayMs: 0,
   /** Extra Web Audio noise gate. ON by default so background noise is actually
@@ -160,6 +169,7 @@ export class AusoPhone {
     this.media.attach();
     this.media.setNoiseGate(Boolean(this.config.noiseGate));
     this.calls.setAutoAnswer(this.config.autoAnswer, { delayMs: this.config.autoAnswerDelayMs });
+    this.calls.setMaxConcurrentCalls(this.config.maxConcurrentCalls);
     this._installLifecycleWatch();
     this._installSession();
     this.initialised = true;

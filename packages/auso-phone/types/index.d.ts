@@ -93,6 +93,12 @@ export interface AusoPhoneConfig {
   registerExpires?: number;
   autoAnswer?: boolean;
   autoAnswerDelayMs?: number;
+  /**
+   * Concurrent calls allowed per extension. Defaults to 1: a second
+   * simultaneous INVITE is rejected with 486 Busy Here. The attended-transfer
+   * consultation leg is exempt at any value.
+   */
+  maxConcurrentCalls?: number;
   credentialRefreshLeadSeconds?: number;
   /** Coordinate tabs so only one registers the extension; the rest mirror it. */
   sessionSync?: boolean;
