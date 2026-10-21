@@ -374,35 +374,52 @@ export class MediaManager {
 
   /** Outbound ringback heard by the agent while the far end rings. */
   startRingback() {
+    if (!this.enableTones) return;
+    this.stopTone();
+    try {
+      const ctx = this._ctx();
+      if (ctx && ctx.state === 'suspended') {
+        ctx.resume().catch(() => {});
+      }
+    } catch (err) {
+      log.debug('ringback ctx resume failed', err);
+    }
     this._startTone([400, 450], { onMs: 1500, offMs: 3000, gain: 0.25 });
   }
 
   _startTone(freqs, { onMs, offMs, gain = 0.35 }) {
     if (!this.enableTones) return;
     this.stopTone();
-    const ctx = this._ctx();
-    const master = ctx.createGain();
-    master.gain.value = 0;
-    master.connect(ctx.destination);
+    try {
+      const ctx = this._ctx();
+      if (ctx && ctx.state === 'suspended') {
+        ctx.resume().catch(() => {});
+      }
+      const master = ctx.createGain();
+      master.gain.value = 0;
+      master.connect(ctx.destination);
 
-    const oscillators = freqs.map((f) => {
-      const osc = ctx.createOscillator();
-      osc.type = 'sine';
-      osc.frequency.value = f;
-      osc.connect(master);
-      osc.start();
-      return osc;
-    });
+      const oscillators = freqs.map((f) => {
+        const osc = ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.value = f;
+        osc.connect(master);
+        osc.start();
+        return osc;
+      });
 
-    const level = gain * this.ringtoneVolume;
-    const cycle = () => {
-      const now = ctx.currentTime;
-      master.gain.setValueAtTime(level, now);
-      master.gain.setValueAtTime(0, now + onMs / 1000);
-    };
-    cycle();
-    const timer = setInterval(cycle, onMs + offMs);
-    this.activeTone = { oscillators, master, timer };
+      const level = gain * this.ringtoneVolume;
+      const cycle = () => {
+        const now = ctx.currentTime;
+        master.gain.setValueAtTime(level, now);
+        master.gain.setValueAtTime(0, now + onMs / 1000);
+      };
+      cycle();
+      const timer = setInterval(cycle, onMs + offMs);
+      this.activeTone = { oscillators, master, timer };
+    } catch (err) {
+      log.warn('tone playback failed', err);
+    }
   }
 
   stopTone() {

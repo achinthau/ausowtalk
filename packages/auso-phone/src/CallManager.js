@@ -136,7 +136,13 @@ export class CallManager {
           if (call.state === CallState.DIALING && (code === 180 || code === 183)) {
             this._setState(call, CallState.RINGING, PhoneEvents.RINGING);
             // 183 means Asterisk is sending early media; don't talk over it.
-            if (code === 180 && !call.consultation) this.media.startRingback();
+            if (code === 180 && !call.consultation) {
+              try {
+                this.media.startRingback();
+              } catch (e) {
+                // ignore
+              }
+            }
           }
         },
         onReject: (response) => {
