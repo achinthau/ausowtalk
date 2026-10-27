@@ -148,11 +148,54 @@
     // on — forwarding all of them (including the 1 Hz `call_updated` tick)
     // would cause a Livewire round-trip every second.
     // ---------------------------------------------------------------------
+
+    function notifyIncomingCall(call) {
+        if (!call || !('Notification' in window)) return;
+        if (Notification.permission === 'default') {
+            try {
+                Notification.requestPermission();
+            } catch {}
+            return;
+        }
+        if (Notification.permission !== 'granted') return;
+
+        try {
+            const name = call.customer?.name;
+            const cli = call.cli || call.customer_number || '';
+            const title = name ? `${name} (${cli})` : `Incoming call — ${cli}`;
+            const notification = new Notification(title, {
+                body: `Incoming call from ${cli}`,
+                tag: `incoming-${call.call_id || cli}`,
+                requireInteraction: true,
+                silent: false,
+            });
+            notification.onclick = () => {
+                try {
+                    window.focus();
+                } catch {}
+                try {
+                    window.parent?.focus();
+                } catch {}
+                notification.close();
+            };
+            setTimeout(() => {
+                try {
+                    notification.close();
+                } catch {}
+            }, 15000);
+        } catch {
+            /* ignore */
+        }
+    }
+
     const forward = {
         registered:          () => $wire.dispatch('phone-registered'),
         unregistered:        () => $wire.dispatch('phone-unregistered'),
         registration_failed: () => $wire.dispatch('phone-registration-failed'),
-        incoming:  (e) => $wire.dispatch('phone-incoming', { call: e.call }),
+        incoming:  (e) => {
+            $wire.dispatch('phone-incoming', { call: e.call });
+            notifyIncomingCall(e.call);
+        },
         answered:  (e) => $wire.dispatch('phone-answered', { call: e.call }),
         hangup:    (e) => $wire.dispatch('phone-hangup',   { call: e.call }),
         hold:      (e) => $wire.dispatch('phone-hold',     { call: e.call }),
@@ -164,6 +207,13 @@
 
     for (const [name, handler] of Object.entries(forward)) {
         window.addEventListener(`ausophone:${name}`, (ev) => handler(ev.detail));
+    }
+
+    // Request notification permission early if possible
+    if ('Notification' in window && Notification.permission === 'default') {
+        try {
+            Notification.requestPermission();
+        } catch {}
     }
 
     // ---------------------------------------------------------------------

@@ -2687,7 +2687,7 @@ var AusoPhoneBundle = (() => {
   };
 
   // node_modules/sip.js/lib/api/notification.js
-  var Notification = class {
+  var Notification2 = class {
     /** @internal */
     constructor(incomingNotifyRequest) {
       this.incomingNotifyRequest = incomingNotifyRequest;
@@ -3507,12 +3507,12 @@ var AusoPhoneBundle = (() => {
         return;
       }
       if (this.onNotify) {
-        const notification = new Notification(request);
+        const notification = new Notification2(request);
         this.onNotify(notification);
         return;
       }
       if (this.delegate && this.delegate.onNotify) {
-        const notification = new Notification(request);
+        const notification = new Notification2(request);
         this.delegate.onNotify(notification);
       } else {
         request.accept();
@@ -12512,7 +12512,7 @@ var AusoPhoneBundle = (() => {
         },
         onNotify: (incomingNotifyRequest) => {
           if (this.delegate && this.delegate.onNotify) {
-            const notification = new Notification(incomingNotifyRequest);
+            const notification = new Notification2(incomingNotifyRequest);
             this.delegate.onNotify(notification);
           } else {
             if (this.options.allowLegacyNotifications) {
@@ -13565,8 +13565,56 @@ Duration=${duration}`
       setTimeout(() => this.calls.delete(call.id), 5e3);
       this._ensureDurationTimer();
     }
+    _showIncomingNotification(call) {
+      try {
+        if (typeof window === "undefined" || !("Notification" in window)) return;
+        if (Notification.permission === "default") {
+          try {
+            Notification.requestPermission();
+          } catch {
+          }
+        }
+        if (Notification.permission !== "granted") return;
+        if (!call) return;
+        if (call.direction === "outbound") return;
+        const name = call.customer?.name || call.remote_display_name || "";
+        const cli = call.cli || call.customer_number || "";
+        const title = name ? `${name} (${cli})` : `Incoming call \u2014 ${cli}`;
+        const n = new Notification(title, {
+          body: `Incoming call from ${cli}`,
+          tag: `auso-call-${call.call_id || cli}`,
+          requireInteraction: true
+        });
+        n.onclick = () => {
+          try {
+            if (typeof window.focus === "function") window.focus();
+            if (typeof window.parent !== "undefined" && typeof window.parent.focus === "function") {
+              window.parent.focus();
+            }
+          } catch {
+          }
+          try {
+            n.close();
+          } catch {
+          }
+        };
+        setTimeout(() => {
+          try {
+            n.close();
+          } catch {
+          }
+        }, 15e3);
+      } catch {
+      }
+    }
     _setState(call, state, event, extra = {}) {
       call.state = state;
+      if (event === PhoneEvents.INCOMING || state === CallState.RINGING) {
+        try {
+          this._showIncomingNotification(call);
+        } catch {
+        }
+      }
       this.events.emit(event, { call: call.toJSON(), ...extra });
     }
     /** One shared 1s tick that republishes durations for the UI. */
@@ -15456,6 +15504,43 @@ registerProcessor('auso-noise-gate', AusoNoiseGate);
         });
       };
       this.events.on(PhoneEvents.INCOMING, ({ call }) => {
+        try {
+          if (typeof window !== "undefined" && "Notification" in window && call?.direction !== "outbound") {
+            if (Notification.permission === "default") {
+              try {
+                Notification.requestPermission();
+              } catch {
+              }
+            }
+            if (Notification.permission === "granted") {
+              const name = call.customer?.name || call.remote_display_name || "";
+              const cli = call.cli || call.customer_number || "";
+              const title = name ? `${name} (${cli})` : `Incoming call \u2014 ${cli}`;
+              const n = new Notification(title, {
+                body: `Incoming call from ${cli}`,
+                tag: `auso-incoming-${call.call_id || cli}`,
+                requireInteraction: true
+              });
+              n.onclick = () => {
+                try {
+                  if (typeof window.focus === "function") window.focus();
+                } catch {
+                }
+                try {
+                  n.close();
+                } catch {
+                }
+              };
+              setTimeout(() => {
+                try {
+                  n.close();
+                } catch {
+                }
+              }, 15e3);
+            }
+          }
+        } catch {
+        }
         if (!this.config.lookupUrl) return;
         this.lookupCustomer(call.cli, call.call_id).catch((err) => log9.warn("lookup failed", err));
       });
@@ -15927,6 +16012,50 @@ registerProcessor('auso-noise-gate', AusoNoiseGate);
       return this.phone.logout().finally(() => this.render());
     }
     // ---- Rendering ---------------------------------------------------------
+    _showIncomingNotification(call) {
+      if (!call) return;
+      try {
+        if (typeof window !== "undefined" && "Notification" in window) {
+          if (Notification.permission === "default") {
+            try {
+              Notification.requestPermission();
+            } catch {
+            }
+          }
+          if (Notification.permission === "granted") {
+            const name = call.customer?.name || call.remote_display_name || "";
+            const cli = call.cli || call.caller || "";
+            const title = name ? `${name} (${cli})` : `Incoming call \u2014 ${cli}`;
+            const n = new Notification(title, {
+              body: `Incoming call from ${cli}`,
+              tag: `auso-incoming-${call.call_id || cli}`,
+              requireInteraction: true
+            });
+            n.onclick = () => {
+              try {
+                window.focus();
+              } catch {
+              }
+              try {
+                this.focus?.();
+              } catch {
+              }
+              try {
+                n.close();
+              } catch {
+              }
+            };
+            setTimeout(() => {
+              try {
+                n.close();
+              } catch {
+              }
+            }, 15e3);
+          }
+        }
+      } catch {
+      }
+    }
     _subscribe() {
       const rerender = () => this.render();
       const watched = [
@@ -15952,7 +16081,19 @@ registerProcessor('auso-noise-gate', AusoNoiseGate);
         PhoneEvents.RECORDING_STARTED,
         PhoneEvents.RECORDING_STOPPED
       ];
-      watched.forEach((e) => this._unsubscribers.push(this.phone.on(e, rerender)));
+      watched.forEach((e) => {
+        if (e === PhoneEvents.INCOMING) {
+          this._unsubscribers.push(this.phone.on(e, (payload) => {
+            try {
+              this._showIncomingNotification(payload?.call || payload);
+            } catch {
+            }
+            rerender();
+          }));
+        } else {
+          this._unsubscribers.push(this.phone.on(e, rerender));
+        }
+      });
       this._unsubscribers.push(this.phone.on(PhoneEvents.SESSION_STATE, rerender));
       this._unsubscribers.push(this.phone.on(PhoneEvents.SESSION_ROLE, rerender));
       this._unsubscribers.push(

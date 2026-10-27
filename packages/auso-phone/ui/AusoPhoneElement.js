@@ -150,6 +150,35 @@ export class AusoPhoneElement extends HTMLElement {
 
   // ---- Rendering ---------------------------------------------------------
 
+  _showIncomingNotification(call) {
+    if (!call) return;
+    try {
+      if (typeof window !== 'undefined' && 'Notification' in window) {
+        if (Notification.permission === 'default') {
+          try { Notification.requestPermission(); } catch {}
+        }
+        if (Notification.permission === 'granted') {
+          const name = call.customer?.name || call.remote_display_name || '';
+          const cli = call.cli || call.caller || '';
+          const title = name ? `${name} (${cli})` : `Incoming call — ${cli}`;
+          const n = new Notification(title, {
+            body: `Incoming call from ${cli}`,
+            tag: `auso-incoming-${call.call_id || cli}`,
+            requireInteraction: true,
+          });
+          n.onclick = () => {
+            try { window.focus(); } catch {}
+            try { this.focus?.(); } catch {}
+            try { n.close(); } catch {}
+          };
+          setTimeout(() => { try { n.close(); } catch {} }, 15000);
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
   _subscribe() {
     const rerender = () => this.render();
     // Every state-affecting event triggers a re-render. The component is small
@@ -163,7 +192,18 @@ export class AusoPhoneElement extends HTMLElement {
       PhoneEvents.TRANSFER_STARTED, PhoneEvents.TRANSFER_COMPLETED, PhoneEvents.TRANSFER_FAILED,
       PhoneEvents.RECORDING_STARTED, PhoneEvents.RECORDING_STOPPED,
     ];
-    watched.forEach((e) => this._unsubscribers.push(this.phone.on(e, rerender)));
+    watched.forEach((e) => {
+      if (e === PhoneEvents.INCOMING) {
+        this._unsubscribers.push(this.phone.on(e, (payload) => {
+          try {
+            this._showIncomingNotification(payload?.call || payload);
+          } catch {}
+          rerender();
+        }));
+      } else {
+        this._unsubscribers.push(this.phone.on(e, rerender));
+      }
+    });
 
     // A companion tab sees no SIP events of its own — it renders whatever the
     // owning tab publishes, once a second and on every change.

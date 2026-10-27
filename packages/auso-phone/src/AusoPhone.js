@@ -833,6 +833,28 @@ export class AusoPhone {
 
     // Screen-pop: as soon as an INVITE lands, ask Laravel who is calling.
     this.events.on(PhoneEvents.INCOMING, ({ call }) => {
+      try {
+        if (typeof window !== 'undefined' && 'Notification' in window && call?.direction !== 'outbound') {
+          if (Notification.permission === 'default') {
+            try { Notification.requestPermission(); } catch {}
+          }
+          if (Notification.permission === 'granted') {
+            const name = call.customer?.name || call.remote_display_name || '';
+            const cli = call.cli || call.customer_number || '';
+            const title = name ? `${name} (${cli})` : `Incoming call — ${cli}`;
+            const n = new Notification(title, {
+              body: `Incoming call from ${cli}`,
+              tag: `auso-incoming-${call.call_id || cli}`,
+              requireInteraction: true,
+            });
+            n.onclick = () => {
+              try { if (typeof window.focus === 'function') window.focus(); } catch {}
+              try { n.close(); } catch {}
+            };
+            setTimeout(() => { try { n.close(); } catch {} }, 15000);
+          }
+        }
+      } catch {}
       if (!this.config.lookupUrl) return;
       this.lookupCustomer(call.cli, call.call_id).catch((err) => log.warn('lookup failed', err));
     });
