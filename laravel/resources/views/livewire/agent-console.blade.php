@@ -13,6 +13,7 @@
     <div wire:ignore>
         <auso-phone
             id="auso-phone"
+            style="width:220px; max-width:240px;"
             credentials-url="{{ route('api.phone.credentials') }}"
             lookup-url="{{ route('api.customers.lookup') }}"
             call-record-url="{{ route('api.phone.call-records') }}"

@@ -14,14 +14,17 @@ export const styles = `
   --auso-danger: #dc2626;
   --auso-success: #16a34a;
   --auso-warn: #d97706;
-  --auso-radius: 14px;
-  --auso-shadow: 0 8px 30px rgba(15, 23, 42, .12);
+  --auso-radius: 10px;
+  --auso-shadow: 0 6px 24px rgba(15, 23, 42, .1);
 
   display: block;
-  width: 340px;
+  width: 260px;
+  min-width: 230px;
+  max-width: 280px;
   font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
   color: var(--auso-text);
   -webkit-font-smoothing: antialiased;
+  font-size: 12.5px;
 }
 
 :host([theme="dark"]) {
@@ -49,15 +52,15 @@ export const styles = `
 
 /* ---- Header ---- */
 .header {
-  display: flex; align-items: center; gap: 10px;
-  padding: 12px 14px;
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 10px;
   background: var(--auso-primary);
   color: var(--auso-primary-ink);
 }
-.header img { height: 26px; width: auto; max-width: 110px; object-fit: contain; border-radius: 4px; }
-.header .brand { font-weight: 650; font-size: 14px; letter-spacing: .01em; flex: 1; min-width: 0;
+.header img { height: 20px; width: auto; max-width: 80px; object-fit: contain; border-radius: 4px; }
+.header .brand { font-weight: 650; font-size: 12px; letter-spacing: .01em; flex: 1; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.header .ext { font-size: 12px; opacity: .85; font-variant-numeric: tabular-nums; }
+.header .ext { font-size: 10.5px; opacity: .85; font-variant-numeric: tabular-nums; }
 .icon-btn {
   appearance: none; border: 0; background: transparent; color: inherit; cursor: pointer;
   padding: 6px; border-radius: 8px; display: grid; place-items: center; line-height: 0;
@@ -67,8 +70,8 @@ export const styles = `
 
 /* ---- Status strip ---- */
 .status {
-  display: flex; align-items: center; gap: 8px;
-  padding: 7px 14px; font-size: 12px;
+  display: flex; align-items: center; gap: 5px;
+  padding: 5px 10px; font-size: 10.5px;
   background: var(--auso-surface);
   border-bottom: 1px solid var(--auso-border);
   color: var(--auso-muted);
@@ -88,40 +91,40 @@ export const styles = `
 :host([theme="dark"]) .pill { color: #5eead4; }
 
 /* ---- Body ---- */
-.body { padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+.body { padding: 10px; display: flex; flex-direction: column; gap: 8px; }
 
 /* ---- Dial pad ---- */
 .dial-input {
-  display: flex; align-items: center; gap: 6px;
+  display: flex; align-items: center; gap: 4px;
   border: 1px solid var(--auso-border); border-radius: 10px;
-  background: var(--auso-surface); padding: 4px 4px 4px 12px;
+  background: var(--auso-surface); padding: 3px 3px 3px 10px;
 }
 .dial-input input {
   flex: 1; min-width: 0; border: 0; background: transparent; outline: none;
-  font-size: 20px; font-variant-numeric: tabular-nums; letter-spacing: .02em;
-  color: var(--auso-text); padding: 8px 0;
+  font-size: 18px; font-variant-numeric: tabular-nums; letter-spacing: .02em;
+  color: var(--auso-text); padding: 6px 0;
 }
 .dial-input .icon-btn { color: var(--auso-muted); }
 .dial-input .icon-btn:hover { background: var(--auso-border); }
 
-.keys { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.keys { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .key {
   appearance: none; cursor: pointer;
   border: 1px solid var(--auso-border); background: var(--auso-bg); color: var(--auso-text);
-  border-radius: 10px; padding: 10px 0 8px;
-  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  border-radius: 9px; padding: 6px 0 5px;
+  display: flex; flex-direction: column; align-items: center; gap: 0;
   transition: transform .06s ease, background .12s ease;
 }
 .key:hover { background: var(--auso-surface); }
 .key:active { transform: scale(.96); }
-.key .digit { font-size: 19px; font-weight: 550; line-height: 1; font-variant-numeric: tabular-nums; }
-.key .letters { font-size: 8.5px; letter-spacing: .12em; color: var(--auso-muted); height: 10px; }
+.key .digit { font-size: 15.5px; font-weight: 550; line-height: 1; font-variant-numeric: tabular-nums; }
+.key .letters { font-size: 7px; letter-spacing: .1em; color: var(--auso-muted); height: 8px; }
 
 /* ---- Buttons ---- */
 .btn {
   appearance: none; cursor: pointer; border: 1px solid transparent;
-  border-radius: 10px; padding: 11px 14px; font-size: 13.5px; font-weight: 600;
-  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  border-radius: 9px; padding: 9px 12px; font-size: 12.5px; font-weight: 600;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   transition: filter .12s ease, background .12s ease;
 }
 .btn:disabled { opacity: .45; cursor: not-allowed; }
@@ -137,8 +140,8 @@ export const styles = `
 
 /* ---- Call card ---- */
 .call-card {
-  border: 1px solid var(--auso-border); border-radius: 12px;
-  background: var(--auso-surface); padding: 14px; text-align: center;
+  border: 1px solid var(--auso-border); border-radius: 11px;
+  background: var(--auso-surface); padding: 11px; text-align: center;
 }
 .call-card.incoming { border-color: var(--auso-success); animation: ring 1.6s ease-in-out infinite; }
 @keyframes ring {
@@ -150,13 +153,13 @@ export const styles = `
   color: var(--auso-muted); font-weight: 650;
 }
 .call-card .cli {
-  font-size: 23px; font-weight: 620; margin: 5px 0 2px;
+  font-size: 20px; font-weight: 620; margin: 4px 0 2px;
   font-variant-numeric: tabular-nums; word-break: break-all;
 }
-.call-card .who { font-size: 13px; color: var(--auso-muted); min-height: 18px; }
+.call-card .who { font-size: 12px; color: var(--auso-muted); min-height: 16px; }
 .call-card .timer {
-  font-size: 26px; font-variant-numeric: tabular-nums; font-weight: 300;
-  letter-spacing: .04em; margin: 6px 0 10px;
+  font-size: 22px; font-variant-numeric: tabular-nums; font-weight: 300;
+  letter-spacing: .04em; margin: 4px 0 8px;
 }
 .call-card .badges { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; margin-bottom: 10px; min-height: 0; }
 .badge {
@@ -168,31 +171,31 @@ export const styles = `
 .badge.rec  { color: var(--auso-danger); animation: pulse 1.6s ease-in-out infinite; }
 .badge.auto { color: var(--auso-primary); }
 
-.controls { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
-.controls .btn { padding: 10px 8px; font-size: 12.5px; }
+.controls { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+.controls .btn { padding: 8px 6px; font-size: 11.5px; }
 .controls-4 { grid-template-columns: repeat(4, 1fr); }
-.controls-4 .btn { flex-direction: column; gap: 4px; font-size: 10.5px; padding: 9px 2px; }
+.controls-4 .btn { flex-direction: column; gap: 3px; font-size: 9.5px; padding: 7px 2px; }
 
 /* ---- Customer screen-pop ---- */
 .customer {
   border: 1px solid var(--auso-border); border-left: 3px solid var(--auso-primary);
-  border-radius: 8px; background: var(--auso-bg); padding: 9px 11px; text-align: left;
-  margin-bottom: 10px;
+  border-radius: 8px; background: var(--auso-bg); padding: 7px 9px; text-align: left;
+  margin-bottom: 8px;
 }
-.customer .name { font-weight: 650; font-size: 13.5px; }
-.customer .meta { font-size: 11.5px; color: var(--auso-muted); margin-top: 2px; }
+.customer .name { font-weight: 650; font-size: 12.5px; }
+.customer .meta { font-size: 10.5px; color: var(--auso-muted); margin-top: 2px; }
 
 /* ---- Transfer / settings panels ---- */
 .panel {
-  border: 1px solid var(--auso-border); border-radius: 12px;
-  background: var(--auso-surface); padding: 13px;
+  border: 1px solid var(--auso-border); border-radius: 11px;
+  background: var(--auso-surface); padding: 11px;
 }
-.panel h4 { margin: 0 0 10px; font-size: 12.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--auso-muted); }
-.field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
-.field label { font-size: 11.5px; font-weight: 600; color: var(--auso-muted); }
+.panel h4 { margin: 0 0 8px; font-size: 11.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--auso-muted); }
+.field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.field label { font-size: 10.5px; font-weight: 600; color: var(--auso-muted); }
 .field input, .field select {
-  width: 100%; padding: 9px 10px; font-size: 14px; color: var(--auso-text);
-  border: 1px solid var(--auso-border); border-radius: 8px; background: var(--auso-bg);
+  width: 100%; padding: 7px 8px; font-size: 12.5px; color: var(--auso-text);
+  border: 1px solid var(--auso-border); border-radius: 7px; background: var(--auso-bg);
   outline: none;
 }
 .field input:focus, .field select:focus { border-color: var(--auso-primary); }

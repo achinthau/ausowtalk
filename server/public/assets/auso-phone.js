@@ -13565,56 +13565,8 @@ Duration=${duration}`
       setTimeout(() => this.calls.delete(call.id), 5e3);
       this._ensureDurationTimer();
     }
-    _showIncomingNotification(call) {
-      try {
-        if (typeof window === "undefined" || !("Notification" in window)) return;
-        if (Notification.permission === "default") {
-          try {
-            Notification.requestPermission();
-          } catch {
-          }
-        }
-        if (Notification.permission !== "granted") return;
-        if (!call) return;
-        if (call.direction === "outbound") return;
-        const name = call.customer?.name || call.remote_display_name || "";
-        const cli = call.cli || call.customer_number || "";
-        const title = name ? `${name} (${cli})` : `Incoming call \u2014 ${cli}`;
-        const n = new Notification(title, {
-          body: `Incoming call from ${cli}`,
-          tag: `auso-call-${call.call_id || cli}`,
-          requireInteraction: true
-        });
-        n.onclick = () => {
-          try {
-            if (typeof window.focus === "function") window.focus();
-            if (typeof window.parent !== "undefined" && typeof window.parent.focus === "function") {
-              window.parent.focus();
-            }
-          } catch {
-          }
-          try {
-            n.close();
-          } catch {
-          }
-        };
-        setTimeout(() => {
-          try {
-            n.close();
-          } catch {
-          }
-        }, 15e3);
-      } catch {
-      }
-    }
     _setState(call, state, event, extra = {}) {
       call.state = state;
-      if (event === PhoneEvents.INCOMING || state === CallState.RINGING) {
-        try {
-          this._showIncomingNotification(call);
-        } catch {
-        }
-      }
       this.events.emit(event, { call: call.toJSON(), ...extra });
     }
     /** One shared 1s tick that republishes durations for the UI. */
@@ -15504,43 +15456,6 @@ registerProcessor('auso-noise-gate', AusoNoiseGate);
         });
       };
       this.events.on(PhoneEvents.INCOMING, ({ call }) => {
-        try {
-          if (typeof window !== "undefined" && "Notification" in window && call?.direction !== "outbound") {
-            if (Notification.permission === "default") {
-              try {
-                Notification.requestPermission();
-              } catch {
-              }
-            }
-            if (Notification.permission === "granted") {
-              const name = call.customer?.name || call.remote_display_name || "";
-              const cli = call.cli || call.customer_number || "";
-              const title = name ? `${name} (${cli})` : `Incoming call \u2014 ${cli}`;
-              const n = new Notification(title, {
-                body: `Incoming call from ${cli}`,
-                tag: `auso-incoming-${call.call_id || cli}`,
-                requireInteraction: true
-              });
-              n.onclick = () => {
-                try {
-                  if (typeof window.focus === "function") window.focus();
-                } catch {
-                }
-                try {
-                  n.close();
-                } catch {
-                }
-              };
-              setTimeout(() => {
-                try {
-                  n.close();
-                } catch {
-                }
-              }, 15e3);
-            }
-          }
-        } catch {
-        }
         if (!this.config.lookupUrl) return;
         this.lookupCustomer(call.cli, call.call_id).catch((err) => log9.warn("lookup failed", err));
       });
@@ -15659,14 +15574,17 @@ registerProcessor('auso-noise-gate', AusoNoiseGate);
   --auso-danger: #dc2626;
   --auso-success: #16a34a;
   --auso-warn: #d97706;
-  --auso-radius: 14px;
-  --auso-shadow: 0 8px 30px rgba(15, 23, 42, .12);
+  --auso-radius: 10px;
+  --auso-shadow: 0 6px 24px rgba(15, 23, 42, .1);
 
   display: block;
-  width: 340px;
+  width: 300px;
+  min-width: 260px;
+  max-width: 320px;
   font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
   color: var(--auso-text);
   -webkit-font-smoothing: antialiased;
+  font-size: 13px;
 }
 
 :host([theme="dark"]) {
@@ -15694,15 +15612,15 @@ registerProcessor('auso-noise-gate', AusoNoiseGate);
 
 /* ---- Header ---- */
 .header {
-  display: flex; align-items: center; gap: 10px;
-  padding: 12px 14px;
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px;
   background: var(--auso-primary);
   color: var(--auso-primary-ink);
 }
-.header img { height: 26px; width: auto; max-width: 110px; object-fit: contain; border-radius: 4px; }
-.header .brand { font-weight: 650; font-size: 14px; letter-spacing: .01em; flex: 1; min-width: 0;
+.header img { height: 24px; width: auto; max-width: 95px; object-fit: contain; border-radius: 4px; }
+.header .brand { font-weight: 650; font-size: 13px; letter-spacing: .01em; flex: 1; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.header .ext { font-size: 12px; opacity: .85; font-variant-numeric: tabular-nums; }
+.header .ext { font-size: 11px; opacity: .85; font-variant-numeric: tabular-nums; }
 .icon-btn {
   appearance: none; border: 0; background: transparent; color: inherit; cursor: pointer;
   padding: 6px; border-radius: 8px; display: grid; place-items: center; line-height: 0;
@@ -15712,8 +15630,8 @@ registerProcessor('auso-noise-gate', AusoNoiseGate);
 
 /* ---- Status strip ---- */
 .status {
-  display: flex; align-items: center; gap: 8px;
-  padding: 7px 14px; font-size: 12px;
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 12px; font-size: 11.5px;
   background: var(--auso-surface);
   border-bottom: 1px solid var(--auso-border);
   color: var(--auso-muted);
@@ -15733,34 +15651,34 @@ registerProcessor('auso-noise-gate', AusoNoiseGate);
 :host([theme="dark"]) .pill { color: #5eead4; }
 
 /* ---- Body ---- */
-.body { padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+.body { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
 
 /* ---- Dial pad ---- */
 .dial-input {
-  display: flex; align-items: center; gap: 6px;
+  display: flex; align-items: center; gap: 4px;
   border: 1px solid var(--auso-border); border-radius: 10px;
-  background: var(--auso-surface); padding: 4px 4px 4px 12px;
+  background: var(--auso-surface); padding: 3px 3px 3px 10px;
 }
 .dial-input input {
   flex: 1; min-width: 0; border: 0; background: transparent; outline: none;
-  font-size: 20px; font-variant-numeric: tabular-nums; letter-spacing: .02em;
-  color: var(--auso-text); padding: 8px 0;
+  font-size: 18px; font-variant-numeric: tabular-nums; letter-spacing: .02em;
+  color: var(--auso-text); padding: 6px 0;
 }
 .dial-input .icon-btn { color: var(--auso-muted); }
 .dial-input .icon-btn:hover { background: var(--auso-border); }
 
-.keys { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.keys { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .key {
   appearance: none; cursor: pointer;
   border: 1px solid var(--auso-border); background: var(--auso-bg); color: var(--auso-text);
-  border-radius: 10px; padding: 10px 0 8px;
+  border-radius: 10px; padding: 8px 0 6px;
   display: flex; flex-direction: column; align-items: center; gap: 1px;
   transition: transform .06s ease, background .12s ease;
 }
 .key:hover { background: var(--auso-surface); }
 .key:active { transform: scale(.96); }
-.key .digit { font-size: 19px; font-weight: 550; line-height: 1; font-variant-numeric: tabular-nums; }
-.key .letters { font-size: 8.5px; letter-spacing: .12em; color: var(--auso-muted); height: 10px; }
+.key .digit { font-size: 17px; font-weight: 550; line-height: 1; font-variant-numeric: tabular-nums; }
+.key .letters { font-size: 7.5px; letter-spacing: .12em; color: var(--auso-muted); height: 9px; }
 
 /* ---- Buttons ---- */
 .btn {
@@ -16014,45 +15932,56 @@ registerProcessor('auso-noise-gate', AusoNoiseGate);
     // ---- Rendering ---------------------------------------------------------
     _showIncomingNotification(call) {
       if (!call) return;
+      if (call.direction === "outbound") return;
       try {
-        if (typeof window !== "undefined" && "Notification" in window) {
-          if (Notification.permission === "default") {
-            try {
-              Notification.requestPermission();
-            } catch {
-            }
-          }
-          if (Notification.permission === "granted") {
-            const name = call.customer?.name || call.remote_display_name || "";
-            const cli = call.cli || call.caller || "";
-            const title = name ? `${name} (${cli})` : `Incoming call \u2014 ${cli}`;
-            const n = new Notification(title, {
-              body: `Incoming call from ${cli}`,
-              tag: `auso-incoming-${call.call_id || cli}`,
-              requireInteraction: true
-            });
-            n.onclick = () => {
-              try {
-                window.focus();
-              } catch {
-              }
-              try {
-                this.focus?.();
-              } catch {
-              }
-              try {
-                n.close();
-              } catch {
-              }
-            };
-            setTimeout(() => {
-              try {
-                n.close();
-              } catch {
-              }
-            }, 15e3);
+        if (typeof window === "undefined" || !("Notification" in window)) return;
+        const status = this.phone.status?.();
+        if (status?.session?.mirrored) return;
+        if (Notification.permission === "default") {
+          try {
+            Notification.requestPermission();
+          } catch {
           }
         }
+        if (Notification.permission !== "granted") return;
+        const name = call.customer?.name || call.remote_display_name || "";
+        const cli = call.cli || call.customer_number || "";
+        const title = name ? `${name} (${cli})` : `Incoming call \u2014 ${cli}`;
+        const n = new Notification(title, {
+          body: `Incoming call from ${cli} \xB7 click to open the phone`,
+          tag: `auso-incoming-${call.call_id || cli}`,
+          requireInteraction: true
+        });
+        n.onclick = () => {
+          try {
+            window.focus();
+          } catch {
+          }
+          try {
+            window.openAusophone?.();
+          } catch {
+          }
+          try {
+            this.scrollIntoView?.({ block: "nearest" });
+          } catch {
+          }
+          try {
+            window.dispatchEvent(new CustomEvent("ausophone:notification-click", {
+              detail: { call }
+            }));
+          } catch {
+          }
+          try {
+            n.close();
+          } catch {
+          }
+        };
+        setTimeout(() => {
+          try {
+            n.close();
+          } catch {
+          }
+        }, 3e4);
       } catch {
       }
     }

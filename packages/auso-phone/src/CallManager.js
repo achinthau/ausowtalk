@@ -457,45 +457,8 @@ export class CallManager {
     this._ensureDurationTimer();
   }
 
-  _showIncomingNotification(call) {
-    try {
-      if (typeof window === 'undefined' || !('Notification' in window)) return;
-      if (Notification.permission === 'default') {
-        try { Notification.requestPermission(); } catch {}
-      }
-      if (Notification.permission !== 'granted') return;
-      if (!call) return;
-      if (call.direction === 'outbound') return;
-      const name = call.customer?.name || call.remote_display_name || '';
-      const cli = call.cli || call.customer_number || '';
-      const title = name ? `${name} (${cli})` : `Incoming call — ${cli}`;
-      const n = new Notification(title, {
-        body: `Incoming call from ${cli}`,
-        tag: `auso-call-${call.call_id || cli}`,
-        requireInteraction: true,
-      });
-      n.onclick = () => {
-        try {
-          if (typeof window.focus === 'function') window.focus();
-          if (typeof window.parent !== 'undefined' && typeof window.parent.focus === 'function') {
-            window.parent.focus();
-          }
-        } catch {}
-        try { n.close(); } catch {}
-      };
-      setTimeout(() => { try { n.close(); } catch {} }, 15000);
-    } catch {
-      /* ignore */
-    }
-  }
-
   _setState(call, state, event, extra = {}) {
     call.state = state;
-    if (event === PhoneEvents.INCOMING || state === CallState.RINGING) {
-      try {
-        this._showIncomingNotification(call);
-      } catch {}
-    }
     this.events.emit(event, { call: call.toJSON(), ...extra });
   }
 

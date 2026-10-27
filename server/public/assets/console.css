@@ -95,7 +95,7 @@ button.small { padding: 5px 9px; font-size: 11.5px; font-weight: 600; }
 
 .layout {
   display: grid;
-  grid-template-columns: 360px minmax(320px, 1fr) minmax(300px, 380px);
+  grid-template-columns: 220px minmax(320px, 1fr) minmax(300px, 380px);
   gap: 18px;
   padding: 18px;
   align-items: start;
@@ -177,7 +177,7 @@ td audio { height: 26px; max-width: 130px; vertical-align: middle; }
   border-radius: 8px; font-size: 10.5px; line-height: 1.5;
   max-height: 240px; overflow: auto; white-space: pre-wrap;
 }
-auso-phone { width: 100%; }
+auso-phone { width: 190px !important; max-width: 210px !important; min-width: 170px !important; display: block !important; }
 
 /* ---------- Incoming call window ---------- */
 .call-window {

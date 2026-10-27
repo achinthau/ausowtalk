@@ -152,28 +152,44 @@ export class AusoPhoneElement extends HTMLElement {
 
   _showIncomingNotification(call) {
     if (!call) return;
+    if (call.direction === 'outbound') return;
     try {
-      if (typeof window !== 'undefined' && 'Notification' in window) {
-        if (Notification.permission === 'default') {
-          try { Notification.requestPermission(); } catch {}
-        }
-        if (Notification.permission === 'granted') {
-          const name = call.customer?.name || call.remote_display_name || '';
-          const cli = call.cli || call.caller || '';
-          const title = name ? `${name} (${cli})` : `Incoming call — ${cli}`;
-          const n = new Notification(title, {
-            body: `Incoming call from ${cli}`,
-            tag: `auso-incoming-${call.call_id || cli}`,
-            requireInteraction: true,
-          });
-          n.onclick = () => {
-            try { window.focus(); } catch {}
-            try { this.focus?.(); } catch {}
-            try { n.close(); } catch {}
-          };
-          setTimeout(() => { try { n.close(); } catch {} }, 15000);
-        }
+      if (typeof window === 'undefined' || !('Notification' in window)) return;
+
+      // Only the tab that owns the SIP registration raises the OS popup. A
+      // companion tab mirrors the call, so notifying from both would show two
+      // popups and could focus the wrong tab when clicked.
+      const status = this.phone.status?.();
+      if (status?.session?.mirrored) return;
+
+      if (Notification.permission === 'default') {
+        try { Notification.requestPermission(); } catch {}
       }
+      if (Notification.permission !== 'granted') return;
+
+      const name = call.customer?.name || call.remote_display_name || '';
+      const cli = call.cli || call.customer_number || '';
+      const title = name ? `${name} (${cli})` : `Incoming call — ${cli}`;
+      const n = new Notification(title, {
+        body: `Incoming call from ${cli} · click to open the phone`,
+        tag: `auso-incoming-${call.call_id || cli}`,
+        requireInteraction: true,
+      });
+      n.onclick = () => {
+        // Bring *this* tab — the one holding the call — to the front and make
+        // sure the phone widget is visible.
+        try { window.focus(); } catch {}
+        try { window.openAusophone?.(); } catch {}
+        try { this.scrollIntoView?.({ block: 'nearest' }); } catch {}
+        try {
+          window.dispatchEvent(new CustomEvent('ausophone:notification-click', {
+            detail: { call },
+          }));
+        } catch {}
+        try { n.close(); } catch {}
+      };
+      // Keep it up long enough to notice from another application/window.
+      setTimeout(() => { try { n.close(); } catch {} }, 30000);
     } catch {
       /* ignore */
     }
