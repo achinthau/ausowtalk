@@ -15540,13 +15540,13 @@ var styles = `
   --auso-shadow: 0 6px 24px rgba(15, 23, 42, .1);
 
   display: block;
-  width: 300px;
-  min-width: 260px;
-  max-width: 320px;
+  width: 260px;
+  min-width: 230px;
+  max-width: 280px;
   font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
   color: var(--auso-text);
   -webkit-font-smoothing: antialiased;
-  font-size: 13px;
+  font-size: 12.5px;
 }
 
 :host([theme="dark"]) {
@@ -15574,15 +15574,15 @@ var styles = `
 
 /* ---- Header ---- */
 .header {
-  display: flex; align-items: center; gap: 8px;
-  padding: 10px 12px;
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 10px;
   background: var(--auso-primary);
   color: var(--auso-primary-ink);
 }
-.header img { height: 24px; width: auto; max-width: 95px; object-fit: contain; border-radius: 4px; }
-.header .brand { font-weight: 650; font-size: 13px; letter-spacing: .01em; flex: 1; min-width: 0;
+.header img { height: 20px; width: auto; max-width: 80px; object-fit: contain; border-radius: 4px; }
+.header .brand { font-weight: 650; font-size: 12px; letter-spacing: .01em; flex: 1; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.header .ext { font-size: 11px; opacity: .85; font-variant-numeric: tabular-nums; }
+.header .ext { font-size: 10.5px; opacity: .85; font-variant-numeric: tabular-nums; }
 .icon-btn {
   appearance: none; border: 0; background: transparent; color: inherit; cursor: pointer;
   padding: 6px; border-radius: 8px; display: grid; place-items: center; line-height: 0;
@@ -15592,8 +15592,8 @@ var styles = `
 
 /* ---- Status strip ---- */
 .status {
-  display: flex; align-items: center; gap: 6px;
-  padding: 6px 12px; font-size: 11.5px;
+  display: flex; align-items: center; gap: 5px;
+  padding: 5px 10px; font-size: 10.5px;
   background: var(--auso-surface);
   border-bottom: 1px solid var(--auso-border);
   color: var(--auso-muted);
@@ -15613,7 +15613,7 @@ var styles = `
 :host([theme="dark"]) .pill { color: #5eead4; }
 
 /* ---- Body ---- */
-.body { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.body { padding: 10px; display: flex; flex-direction: column; gap: 8px; }
 
 /* ---- Dial pad ---- */
 .dial-input {
@@ -15633,20 +15633,20 @@ var styles = `
 .key {
   appearance: none; cursor: pointer;
   border: 1px solid var(--auso-border); background: var(--auso-bg); color: var(--auso-text);
-  border-radius: 10px; padding: 8px 0 6px;
-  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  border-radius: 9px; padding: 6px 0 5px;
+  display: flex; flex-direction: column; align-items: center; gap: 0;
   transition: transform .06s ease, background .12s ease;
 }
 .key:hover { background: var(--auso-surface); }
 .key:active { transform: scale(.96); }
-.key .digit { font-size: 17px; font-weight: 550; line-height: 1; font-variant-numeric: tabular-nums; }
-.key .letters { font-size: 7.5px; letter-spacing: .12em; color: var(--auso-muted); height: 9px; }
+.key .digit { font-size: 15.5px; font-weight: 550; line-height: 1; font-variant-numeric: tabular-nums; }
+.key .letters { font-size: 7px; letter-spacing: .1em; color: var(--auso-muted); height: 8px; }
 
 /* ---- Buttons ---- */
 .btn {
   appearance: none; cursor: pointer; border: 1px solid transparent;
-  border-radius: 10px; padding: 11px 14px; font-size: 13.5px; font-weight: 600;
-  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  border-radius: 9px; padding: 9px 12px; font-size: 12.5px; font-weight: 600;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   transition: filter .12s ease, background .12s ease;
 }
 .btn:disabled { opacity: .45; cursor: not-allowed; }
@@ -15662,8 +15662,8 @@ var styles = `
 
 /* ---- Call card ---- */
 .call-card {
-  border: 1px solid var(--auso-border); border-radius: 12px;
-  background: var(--auso-surface); padding: 14px; text-align: center;
+  border: 1px solid var(--auso-border); border-radius: 11px;
+  background: var(--auso-surface); padding: 11px; text-align: center;
 }
 .call-card.incoming { border-color: var(--auso-success); animation: ring 1.6s ease-in-out infinite; }
 @keyframes ring {
@@ -15675,13 +15675,13 @@ var styles = `
   color: var(--auso-muted); font-weight: 650;
 }
 .call-card .cli {
-  font-size: 23px; font-weight: 620; margin: 5px 0 2px;
+  font-size: 20px; font-weight: 620; margin: 4px 0 2px;
   font-variant-numeric: tabular-nums; word-break: break-all;
 }
-.call-card .who { font-size: 13px; color: var(--auso-muted); min-height: 18px; }
+.call-card .who { font-size: 12px; color: var(--auso-muted); min-height: 16px; }
 .call-card .timer {
-  font-size: 26px; font-variant-numeric: tabular-nums; font-weight: 300;
-  letter-spacing: .04em; margin: 6px 0 10px;
+  font-size: 22px; font-variant-numeric: tabular-nums; font-weight: 300;
+  letter-spacing: .04em; margin: 4px 0 8px;
 }
 .call-card .badges { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; margin-bottom: 10px; min-height: 0; }
 .badge {
@@ -15693,31 +15693,31 @@ var styles = `
 .badge.rec  { color: var(--auso-danger); animation: pulse 1.6s ease-in-out infinite; }
 .badge.auto { color: var(--auso-primary); }
 
-.controls { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
-.controls .btn { padding: 10px 8px; font-size: 12.5px; }
+.controls { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+.controls .btn { padding: 8px 6px; font-size: 11.5px; }
 .controls-4 { grid-template-columns: repeat(4, 1fr); }
-.controls-4 .btn { flex-direction: column; gap: 4px; font-size: 10.5px; padding: 9px 2px; }
+.controls-4 .btn { flex-direction: column; gap: 3px; font-size: 9.5px; padding: 7px 2px; }
 
 /* ---- Customer screen-pop ---- */
 .customer {
   border: 1px solid var(--auso-border); border-left: 3px solid var(--auso-primary);
-  border-radius: 8px; background: var(--auso-bg); padding: 9px 11px; text-align: left;
-  margin-bottom: 10px;
+  border-radius: 8px; background: var(--auso-bg); padding: 7px 9px; text-align: left;
+  margin-bottom: 8px;
 }
-.customer .name { font-weight: 650; font-size: 13.5px; }
-.customer .meta { font-size: 11.5px; color: var(--auso-muted); margin-top: 2px; }
+.customer .name { font-weight: 650; font-size: 12.5px; }
+.customer .meta { font-size: 10.5px; color: var(--auso-muted); margin-top: 2px; }
 
 /* ---- Transfer / settings panels ---- */
 .panel {
-  border: 1px solid var(--auso-border); border-radius: 12px;
-  background: var(--auso-surface); padding: 13px;
+  border: 1px solid var(--auso-border); border-radius: 11px;
+  background: var(--auso-surface); padding: 11px;
 }
-.panel h4 { margin: 0 0 10px; font-size: 12.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--auso-muted); }
-.field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
-.field label { font-size: 11.5px; font-weight: 600; color: var(--auso-muted); }
+.panel h4 { margin: 0 0 8px; font-size: 11.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--auso-muted); }
+.field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.field label { font-size: 10.5px; font-weight: 600; color: var(--auso-muted); }
 .field input, .field select {
-  width: 100%; padding: 9px 10px; font-size: 14px; color: var(--auso-text);
-  border: 1px solid var(--auso-border); border-radius: 8px; background: var(--auso-bg);
+  width: 100%; padding: 7px 8px; font-size: 12.5px; color: var(--auso-text);
+  border: 1px solid var(--auso-border); border-radius: 7px; background: var(--auso-bg);
   outline: none;
 }
 .field input:focus, .field select:focus { border-color: var(--auso-primary); }
@@ -15999,6 +15999,14 @@ var AusoPhoneElement = class extends HTMLElement {
         this.transferTarget = "";
       })
     );
+    this._unsubscribers.push(
+      this.phone.on(PhoneEvents.HANGUP, () => {
+        if (this.view === "dtmf") {
+          this.view = "dialpad";
+          this.render();
+        }
+      })
+    );
   }
   render() {
     if (!this._root) return;
@@ -16013,7 +16021,7 @@ var AusoPhoneElement = class extends HTMLElement {
       '<div class="body">',
       this.errorMessage ? `<div class="error">${esc(this.errorMessage)}</div>` : "",
       incoming ? this._renderIncoming(incoming) : "",
-      !incoming && active ? this._renderActive(active, s) : "",
+      !incoming && active ? this.view === "dtmf" ? this._renderDtmf(active) : this._renderActive(active, s) : "",
       !incoming && !active && this.view === "dialpad" ? this._renderDialPad(s) : "",
       this.view === "transfer" ? this._renderTransferDialog(s) : "",
       this.view === "settings" ? this._renderSettings(s) : "",
@@ -16111,6 +16119,26 @@ var AusoPhoneElement = class extends HTMLElement {
         </button>
       </div>` : ""}
       ${consulting ? this._renderConsultControls(s) : ""}
+    </div>`;
+  }
+  /** In-call DTMF keypad, shown in place of the call controls so it fits. */
+  _renderDtmf(call) {
+    return `<div class="call-card">
+      <div class="label">${call.held ? "On hold" : "Active call"} \xB7 ${formatDuration(call.duration)}</div>
+      <div class="cli" style="font-size:16px;margin:2px 0 0">${esc(call.cli)}</div>
+      <div class="who">${esc(call.remote_display_name || "")}</div>
+      <div class="controls" style="margin-top:6px">
+        <button class="btn btn-ghost" data-action="close-dtmf">${icons.keypad}Hide keypad</button>
+        <button class="btn btn-danger" data-action="hangup" data-call="${esc(call.call_id)}">${icons.hangup}Hangup</button>
+      </div>
+    </div>
+    <div class="panel">
+      <h4>Keypad</h4>
+      <div class="keys">
+        ${KEYS.map(([d, l]) => `<button class="key" data-action="key" data-key="${d}">
+          <span class="digit">${d}</span><span class="letters">${l}</span>
+        </button>`).join("")}
+      </div>
     </div>`;
   }
   _renderConsultControls(s) {
@@ -16265,12 +16293,14 @@ var AusoPhoneElement = class extends HTMLElement {
         case "key": {
           const key = el.dataset.key;
           const active = this.phone.getActiveCall();
-          if (active && active.state === CallState.ANSWERED && this.view === "dtmf") {
-            await this.phone.sendDTMF(key);
-          } else {
-            this.dialValue += key;
-            this.render();
+          if (this.view === "dtmf") {
+            if (active && active.state === CallState.ANSWERED) {
+              await this.phone.sendDTMF(key);
+            }
+            return;
           }
+          this.dialValue += key;
+          this.render();
           return;
         }
         case "backspace":
@@ -16296,7 +16326,10 @@ var AusoPhoneElement = class extends HTMLElement {
           this.view = "transfer";
           return this.render();
         case "open-dtmf":
-          this.view = this.view === "dtmf" ? "dialpad" : "dtmf";
+          this.view = "dtmf";
+          return this.render();
+        case "close-dtmf":
+          this.view = "dialpad";
           return this.render();
         case "transfer-type":
           this.transferType = el.dataset.type;
