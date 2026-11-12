@@ -110,6 +110,6 @@ async function onToggleRecord(id) {
       />
     </div>
 
-    <footer v-if="state.branding.show_powered_by" class="auso-footer">Powered by AusoPhone</footer>
+    <footer v-if="state.branding.show_powered_by" class="auso-footer">Powered by AusoWorld</footer>
   </div>
 </template>

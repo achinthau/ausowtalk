@@ -22,6 +22,8 @@ export class MediaManager {
     this.remoteAudio = null;
     /** @type {HTMLAudioElement|null} */
     this.ringtoneAudio = null;
+    /** A peer connection we are waiting on for a late early-media track. */
+    this._pendingTrackListener = null;
     /** @type {AudioContext|null} */
     this.toneContext = null;
     this.activeTone = null;
@@ -299,26 +301,90 @@ export class MediaManager {
     }
   }
 
-  /** Pull the remote track(s) off the peer connection into the audio element. */
-  bindRemoteStream(peerConnection) {
-    if (!this.remoteAudio || !peerConnection) return;
-    const stream = new MediaStream();
-    peerConnection.getReceivers().forEach((receiver) => {
-      if (receiver.track && receiver.track.kind === 'audio') stream.addTrack(receiver.track);
-    });
-    if (!stream.getAudioTracks().length) {
-      log.warn('no remote audio track yet');
-      return;
+  /**
+   * Pull the remote track(s) off the peer connection into the audio element.
+   *
+   * Returns true once an audio track is attached. The track is not always
+   * present the instant a provisional response is handled, so when there is
+   * nothing to attach yet we wait for the peer connection's `track` event and
+   * attach as soon as the early-media track arrives. That is what lets the
+   * agent hear the carrier's ringback *while* the far end is ringing instead of
+   * only after the call is answered.
+   *
+   * @param {RTCPeerConnection|null} peerConnection
+   * @param {{ onAttach?: () => void }} [options]
+   * @returns {boolean} true if audio is bound now
+   */
+  bindRemoteStream(peerConnection, { onAttach } = {}) {
+    if (!this.remoteAudio || !peerConnection) return false;
+
+    // A peer connection exists from the moment the local INVITE offer is
+    // created, and its receivers already expose silent audio tracks before any
+    // remote media has been negotiated. Binding those would attach silence and
+    // suppress the locally generated ringback, so wait until a remote
+    // description (the provisional or final SDP answer) has actually been set.
+    if ('currentRemoteDescription' in peerConnection && peerConnection.currentRemoteDescription === null) {
+      log.debug('remote description not set yet — waiting for early media');
+      return false;
     }
-    this.remoteAudio.srcObject = stream;
-    const play = this.remoteAudio.play();
-    if (play?.catch) {
-      play.catch((err) => log.warn('remote audio autoplay blocked', err));
+
+    // A previous call may still be waiting for its early-media track. Drop that
+    // listener before listening for this connection, so a stale track event
+    // cannot take over the audio element after the call has ended.
+    this._clearPendingTrackListener();
+
+    const attach = () => {
+      if (!this.remoteAudio || !peerConnection) return false;
+      const stream = new MediaStream();
+      peerConnection.getReceivers().forEach((receiver) => {
+        if (receiver.track && receiver.track.kind === 'audio') stream.addTrack(receiver.track);
+      });
+      if (!stream.getAudioTracks().length) return false;
+
+      // Re-binding the same tracks resets the <audio> element's playout buffer.
+      // Only swap the source when the track set actually changed (e.g. the
+      // confirmed dialog replacing the early-media one).
+      const current = this.remoteAudio.srcObject;
+      const currentTracks = current instanceof MediaStream ? current.getAudioTracks() : [];
+      const nextTracks = stream.getAudioTracks();
+      const same = currentTracks.length === nextTracks.length
+        && currentTracks.every((track) => nextTracks.includes(track));
+      if (!same) this.remoteAudio.srcObject = stream;
+
+      const play = this.remoteAudio.play();
+      if (play?.catch) {
+        play.catch((err) => log.warn('remote audio autoplay blocked', err));
+      }
+      if (this.outputDeviceId) this.setOutputDevice(this.outputDeviceId);
+      onAttach?.();
+      return true;
+    };
+
+    if (attach()) return true;
+
+    // Early media may add the receiver track a moment after the SDP is applied.
+    if (typeof peerConnection.addEventListener === 'function') {
+      const onTrack = (event) => {
+        if (event?.track?.kind !== 'audio') return;
+        this._clearPendingTrackListener();
+        attach();
+      };
+      peerConnection.addEventListener('track', onTrack);
+      this._pendingTrackListener = { peerConnection, handler: onTrack };
     }
-    if (this.outputDeviceId) this.setOutputDevice(this.outputDeviceId);
+    log.debug('no remote audio track yet — waiting for early media');
+    return false;
+  }
+
+  _clearPendingTrackListener() {
+    const pending = this._pendingTrackListener;
+    if (!pending) return;
+    this._pendingTrackListener = null;
+    pending.peerConnection?.removeEventListener?.('track', pending.handler);
   }
 
   unbindRemoteStream() {
+    this._clearPendingTrackListener();
     if (this.remoteAudio) this.remoteAudio.srcObject = null;
   }
 
@@ -423,22 +489,56 @@ export class MediaManager {
   }
 
   stopTone() {
-    if (!this.activeTone) return;
-    if (this.activeTone.ringtone) {
-      this.activeTone.ringtone.pause();
-      this.activeTone.ringtone.currentTime = 0;
-    } else {
-      const { oscillators, master, timer } = this.activeTone;
-      clearInterval(timer);
+    const tone = this.activeTone;
+    if (!tone) return;
+    // Clear the active tone first so a re-entrant call (e.g. startRingback
+    // calling stopTone) cannot tear down the new tone.
+    this.activeTone = null;
+
+    if (tone.ringtone) {
       try {
-        master.gain.value = 0;
-        oscillators.forEach((o) => o.stop());
-        master.disconnect();
+        tone.ringtone.pause();
+        tone.ringtone.currentTime = 0;
       } catch (err) {
-        log.debug('tone teardown', err);
+        log.debug('ringtone teardown', err);
+      }
+      return;
+    }
+
+    const { oscillators = [], master, timer } = tone;
+    if (timer) clearInterval(timer);
+
+    // The tone schedules gain events ahead of time. Setting `.value` alone does
+    // not override them, so a scheduled "on" event could re-open the gain after
+    // we have stopped the tone (heard as a stray ringback after answering).
+    // Cancel the automation and pin the gain to zero at the current time.
+    try {
+      if (master?.gain) {
+        const now = this.toneContext?.currentTime ?? 0;
+        master.gain.cancelScheduledValues(now);
+        master.gain.setValueAtTime(0, now);
+      }
+    } catch (err) {
+      log.debug('tone gain teardown', err);
+    }
+
+    for (const osc of oscillators) {
+      try {
+        osc.stop();
+      } catch (err) {
+        // Already stopped — nothing to do.
+      }
+      try {
+        osc.disconnect();
+      } catch (err) {
+        // ignore
       }
     }
-    this.activeTone = null;
+    try {
+      master?.disconnect();
+    } catch (err) {
+      log.debug('tone teardown', err);
+    }
   }
 }
 

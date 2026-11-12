@@ -4,7 +4,7 @@
  */
 export const styles = `
 :host {
-  --auso-primary: #0f766e;
+  --auso-primary: #192d95;
   --auso-primary-ink: #ffffff;
   --auso-bg: #ffffff;
   --auso-surface: #f8fafc;
@@ -57,10 +57,8 @@ export const styles = `
   background: var(--auso-primary);
   color: var(--auso-primary-ink);
 }
-.header img { height: 20px; width: auto; max-width: 80px; object-fit: contain; border-radius: 4px; }
-.header .brand { font-weight: 650; font-size: 12px; letter-spacing: .01em; flex: 1; min-width: 0;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .header .ext { font-size: 10.5px; opacity: .85; font-variant-numeric: tabular-nums; }
+.header .spacer { flex: 1; }
 .icon-btn {
   appearance: none; border: 0; background: transparent; color: inherit; cursor: pointer;
   padding: 6px; border-radius: 8px; display: grid; place-items: center; line-height: 0;
@@ -68,27 +66,13 @@ export const styles = `
 .icon-btn:hover { background: rgba(255,255,255,.18); }
 .icon-btn svg { width: 18px; height: 18px; }
 
-/* ---- Status strip ---- */
-.status {
-  display: flex; align-items: center; gap: 5px;
-  padding: 5px 10px; font-size: 10.5px;
-  background: var(--auso-surface);
-  border-bottom: 1px solid var(--auso-border);
-  color: var(--auso-muted);
-}
-.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--auso-muted); flex: none; }
-.dot.registered { background: var(--auso-success); box-shadow: 0 0 0 3px color-mix(in srgb, var(--auso-success) 22%, transparent); }
-.dot.connecting { background: var(--auso-warn); animation: pulse 1.2s ease-in-out infinite; }
-.dot.failed { background: var(--auso-danger); }
+/* ---- Registration indicator ---- */
+.status-icon { display: grid; place-items: center; flex: none; line-height: 0; color: var(--auso-muted); }
+.status-icon svg { width: 14px; height: 14px; }
+.status-icon.registered { color: var(--auso-success); }
+.status-icon.connecting { color: var(--auso-warn); animation: pulse 1.2s ease-in-out infinite; }
+.status-icon.failed { color: var(--auso-danger); }
 @keyframes pulse { 50% { opacity: .3; } }
-.status .spacer { flex: 1; }
-.pill {
-  font-size: 10.5px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase;
-  padding: 2px 7px; border-radius: 999px;
-  background: color-mix(in srgb, var(--auso-primary) 12%, transparent);
-  color: var(--auso-primary);
-}
-:host([theme="dark"]) .pill { color: #5eead4; }
 
 /* ---- Body ---- */
 .body { padding: 10px; display: flex; flex-direction: column; gap: 8px; }

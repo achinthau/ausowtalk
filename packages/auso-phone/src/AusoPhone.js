@@ -93,7 +93,7 @@ const DEFAULT_CONFIG = {
   branding: {
     logo: null,
     company_name: 'Auso Call Hub',
-    primary_color: '#0f766e',
+    primary_color: '#192d95',
     show_powered_by: true,
     theme: 'default',
   },

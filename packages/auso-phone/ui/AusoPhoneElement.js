@@ -39,6 +39,7 @@ export class AusoPhoneElement extends HTMLElement {
     this.sipPassword = '';
     this._unsubscribers = [];
     this._rendered = false;
+    this._lastStatusSignature = null;
   }
 
   connectedCallback() {
@@ -204,7 +205,7 @@ export class AusoPhoneElement extends HTMLElement {
       PhoneEvents.REGISTERED, PhoneEvents.UNREGISTERED, PhoneEvents.REGISTRATION_FAILED,
       PhoneEvents.INCOMING, PhoneEvents.DIALING, PhoneEvents.RINGING, PhoneEvents.ANSWERED,
       PhoneEvents.HANGUP, PhoneEvents.HOLD, PhoneEvents.UNHOLD, PhoneEvents.MUTE,
-      PhoneEvents.UNMUTE, PhoneEvents.CALL_UPDATED,
+      PhoneEvents.UNMUTE,
       PhoneEvents.TRANSFER_STARTED, PhoneEvents.TRANSFER_COMPLETED, PhoneEvents.TRANSFER_FAILED,
       PhoneEvents.RECORDING_STARTED, PhoneEvents.RECORDING_STOPPED,
     ];
@@ -221,9 +222,28 @@ export class AusoPhoneElement extends HTMLElement {
       }
     });
 
+    // The duration tick fires once a second for the whole life of a call.
+    // Replacing the DOM here destroys the control buttons under the pointer,
+    // so a click that starts just before a tick never completes (Hangup looks
+    // like it "does nothing"). Update only the clock instead.
+    this._unsubscribers.push(this.phone.on(PhoneEvents.CALL_UPDATED, (payload) => {
+      if (payload?.calls) this._updateTimers(payload.calls);
+      else this.render();
+    }));
+
     // A companion tab sees no SIP events of its own — it renders whatever the
-    // owning tab publishes, once a second and on every change.
-    this._unsubscribers.push(this.phone.on(PhoneEvents.SESSION_STATE, rerender));
+    // owning tab publishes, once a second and on every change. The heartbeat
+    // carries only a new duration most of the time, so skip the DOM swap
+    // unless something structural actually changed; otherwise the same
+    // button-click race appears in mirroring tabs.
+    this._unsubscribers.push(this.phone.on(PhoneEvents.SESSION_STATE, () => {
+      const status = this.phone.status();
+      if (this._statusSignature(status) === this._lastStatusSignature) {
+        this._updateTimers(status?.calls);
+        return;
+      }
+      this.render();
+    }));
     this._unsubscribers.push(this.phone.on(PhoneEvents.SESSION_ROLE, rerender));
 
     this._unsubscribers.push(
@@ -253,6 +273,7 @@ export class AusoPhoneElement extends HTMLElement {
   render() {
     if (!this._root) return;
     const s = this.phone.status();
+    this._lastStatusSignature = this._statusSignature(s);
     const incoming = s.calls.find((c) => c.direction === Direction.INBOUND && c.state === CallState.RINGING);
     const active = s.calls.find((c) => c.state === CallState.ANSWERED || c.state === CallState.HELD)
       ?? s.calls.find((c) => c.state === CallState.DIALING || c.state === CallState.RINGING);
@@ -263,7 +284,6 @@ export class AusoPhoneElement extends HTMLElement {
 
     this._root.innerHTML = [
       this._renderHeader(s),
-      this._renderStatus(s),
       '<div class="body">',
       this.errorMessage ? `<div class="error">${esc(this.errorMessage)}</div>` : '',
       incoming ? this._renderIncoming(incoming) : '',
@@ -274,7 +294,7 @@ export class AusoPhoneElement extends HTMLElement {
       this.view === 'transfer' ? this._renderTransferDialog(s) : '',
       this.view === 'settings' ? this._renderSettings(s) : '',
       '</div>',
-      s.branding.show_powered_by ? '<div class="footer">Powered by AusoPhone</div>' : '',
+      s.branding.show_powered_by ? '<div class="footer">Powered by AusoWorld</div>' : '',
     ].join('');
 
     this._bindEvents();
@@ -288,34 +308,70 @@ export class AusoPhoneElement extends HTMLElement {
     }
   }
 
-  _renderHeader(s) {
-    const b = s.branding;
-    return `<div class="header">
-      ${b.logo ? `<img src="${esc(b.logo)}" alt="${esc(b.company_name)}">` : ''}
-      <div class="brand">${esc(b.company_name)}</div>
-      ${s.extension ? `<span class="ext">Ext ${esc(s.extension)}</span>` : ''}
-      <button class="icon-btn" data-action="toggle-settings" title="Settings" aria-label="Settings">${icons.settings}</button>
-    </div>`;
+  /**
+   * A structural fingerprint of the status, ignoring the ticking duration.
+   * Lets the once-a-second heartbeat update the clock in place instead of
+   * replacing the whole view (and the buttons the agent is clicking).
+   */
+  _statusSignature(status) {
+    if (!status) return '';
+    const strip = (call) => {
+      if (!call) return null;
+      const { duration, ...rest } = call;
+      return rest;
+    };
+    return JSON.stringify({
+      connection: status.connection,
+      registration: status.registration,
+      registered: status.registered,
+      extension: status.extension,
+      auto_answer: status.auto_answer,
+      branding: status.branding,
+      mirrored: status.session?.mirrored,
+      transfer: status.transfer,
+      calls: (status.calls ?? []).map(strip),
+      active_call: strip(status.active_call),
+    });
   }
 
-  _renderStatus(s) {
-    const map = {
-      [RegistrationState.REGISTERED]: ['registered', 'Registered'],
-      [RegistrationState.REGISTERING]: ['connecting', 'Registering…'],
-      [RegistrationState.FAILED]: ['failed', 'Registration failed'],
-      [RegistrationState.UNREGISTERED]: ['', s.connection === 'connected' ? 'Connected' : 'Offline'],
-    };
-    const [cls, text] = map[s.registration] ?? ['', 'Offline'];
-    // Be explicit about which tab is actually on the line. The call audio lives
-    // wherever the owner is, so an agent needs to know that before they start
-    // talking into a companion tab.
+  /** Update just the call clock, without touching the controls. */
+  _updateTimers(calls) {
+    if (!this._root || !Array.isArray(calls)) return;
+    const incoming = calls.find((c) => c.direction === Direction.INBOUND && c.state === CallState.RINGING);
+    const active = calls.find((c) => c.state === CallState.ANSWERED || c.state === CallState.HELD)
+      ?? calls.find((c) => c.state === CallState.DIALING || c.state === CallState.RINGING);
+    if (incoming || !active) return;
+
+    const duration = formatDuration(active.duration);
+    if (this.view === 'dtmf') {
+      // The keypad view shows the clock in its header line.
+      const label = this._root.querySelector('.call-card .label');
+      if (!label) return;
+      const current = label.textContent ?? '';
+      const next = current.replace(/( · )\d{2}:\d{2}(?::\d{2})?$/, `$1${duration}`);
+      if (next !== current) label.textContent = next;
+      return;
+    }
+
+    const timer = this._root.querySelector('.call-card .timer');
+    if (timer && timer.textContent !== duration) timer.textContent = duration;
+  }
+
+  _renderHeader(s) {
+    const dotClass = {
+      [RegistrationState.REGISTERED]: 'registered',
+      [RegistrationState.REGISTERING]: 'connecting',
+      [RegistrationState.FAILED]: 'failed',
+    }[s.registration] ?? '';
     const mirroring = s.session?.mirrored;
-    return `<div class="status">
-      <span class="dot ${cls}"></span><span>${esc(mirroring ? 'Mirroring another tab' : text)}</span>
+    const dotLabel = mirroring ? 'Mirroring another tab' : (s.registered ? 'Registered' : 'Not registered');
+
+    return `<div class="header">
+      <span class="status-icon ${dotClass}" title="${esc(dotLabel)}" role="img" aria-label="${esc(dotLabel)}">${icons.status}</span>
+      ${!s.registered ? `<button class="icon-btn" data-action="login" title="Connect" aria-label="Connect">${icons.reconnect}</button>` : ''}
       <span class="spacer"></span>
-      ${mirroring ? '<span class="pill" title="This tab follows the tab holding the call. Its microphone is not in use.">Following</span>' : ''}
-      ${s.auto_answer ? '<span class="pill">Auto answer</span>' : ''}
-      ${!s.registered ? '<button class="icon-btn" data-action="login" title="Connect" style="color:var(--auso-muted)">' + icons.phone + '</button>' : ''}
+      ${s.extension ? `<span class="ext">Ext ${esc(s.extension)}</span>` : ''}
+      <button class="icon-btn" data-action="toggle-settings" title="Settings" aria-label="Settings">${icons.settings}</button>
     </div>`;
   }
 

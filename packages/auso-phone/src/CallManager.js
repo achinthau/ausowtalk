@@ -128,20 +128,51 @@ export class CallManager {
     this._wireSession(call);
     this._setState(call, CallState.DIALING, PhoneEvents.DIALING);
 
+    // Whether *our* generated ringback is currently playing. Early media can
+    // arrive after we have already started it, so keep this in sync from the
+    // attach callback as well as from the progress handler.
+    let localRingback = false;
+
     await inviter.invite({
       requestDelegate: {
         onProgress: (response) => {
           // 180/183 — the far end is alerting.
           const code = response?.message?.statusCode;
-          if (call.state === CallState.DIALING && (code === 180 || code === 183)) {
+          if (code !== 180 && code !== 183) return;
+
+          if (call.state === CallState.DIALING) {
             this._setState(call, CallState.RINGING, PhoneEvents.RINGING);
-            // 183 means Asterisk is sending early media; don't talk over it.
-            if (code === 180 && !call.consultation) {
-              try {
-                this.media.startRingback();
-              } catch (e) {
-                // ignore
+          }
+
+          // A provisional response can carry SDP (183 Session Progress, or a
+          // 180 with early media). If the remote description is in place,
+          // attach that stream to the remote <audio> sink immediately — waiting
+          // for Established is what made the carrier's ringback only audible
+          // after the call was answered. `bindRemoteStream` returns false when
+          // there is no negotiated media yet (plain 180).
+          const attached = this.media.bindRemoteStream(call.peerConnection, {
+            onAttach: () => {
+              // Real ringback is audible now; drop the local tone so the
+              // agent does not hear two overlapping ringbacks. Ignore a late
+              // attach once this leg has already been answered/ended, so it
+              // cannot silence a newer call's tone.
+              localRingback = false;
+              if (call.state === CallState.DIALING || call.state === CallState.RINGING) {
+                this.media.stopTone();
               }
+            },
+          });
+          if (attached) return;
+
+          // 180, or a 183 whose early-media track has not arrived yet: generate
+          // ringback locally. If early media shows up later, `onAttach` stops
+          // this tone.
+          if (!call.consultation && !localRingback) {
+            localRingback = true;
+            try {
+              this.media.startRingback();
+            } catch (e) {
+              // ignore
             }
           }
         },

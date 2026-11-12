@@ -13258,17 +13258,29 @@ var CallManager = class {
     if (!call.consultation) this.activeCallId = call.id;
     this._wireSession(call);
     this._setState(call, CallState.DIALING, PhoneEvents.DIALING);
+    let localRingback = false;
     await inviter.invite({
       requestDelegate: {
         onProgress: (response) => {
           const code = response?.message?.statusCode;
-          if (call.state === CallState.DIALING && (code === 180 || code === 183)) {
+          if (code !== 180 && code !== 183) return;
+          if (call.state === CallState.DIALING) {
             this._setState(call, CallState.RINGING, PhoneEvents.RINGING);
-            if (code === 180 && !call.consultation) {
-              try {
-                this.media.startRingback();
-              } catch (e) {
+          }
+          const attached = this.media.bindRemoteStream(call.peerConnection, {
+            onAttach: () => {
+              localRingback = false;
+              if (call.state === CallState.DIALING || call.state === CallState.RINGING) {
+                this.media.stopTone();
               }
+            }
+          });
+          if (attached) return;
+          if (!call.consultation && !localRingback) {
+            localRingback = true;
+            try {
+              this.media.startRingback();
+            } catch (e) {
             }
           }
         },
@@ -13844,6 +13856,7 @@ var MediaManager = class {
     this.enableTones = options.enableTones !== false;
     this.remoteAudio = null;
     this.ringtoneAudio = null;
+    this._pendingTrackListener = null;
     this.toneContext = null;
     this.activeTone = null;
     this.devices = { inputs: [], outputs: [] };
@@ -14069,25 +14082,68 @@ var MediaManager = class {
       }
     }
   }
-  /** Pull the remote track(s) off the peer connection into the audio element. */
-  bindRemoteStream(peerConnection) {
-    if (!this.remoteAudio || !peerConnection) return;
-    const stream = new MediaStream();
-    peerConnection.getReceivers().forEach((receiver) => {
-      if (receiver.track && receiver.track.kind === "audio") stream.addTrack(receiver.track);
-    });
-    if (!stream.getAudioTracks().length) {
-      log5.warn("no remote audio track yet");
-      return;
+  /**
+   * Pull the remote track(s) off the peer connection into the audio element.
+   *
+   * Returns true once an audio track is attached. The track is not always
+   * present the instant a provisional response is handled, so when there is
+   * nothing to attach yet we wait for the peer connection's `track` event and
+   * attach as soon as the early-media track arrives. That is what lets the
+   * agent hear the carrier's ringback *while* the far end is ringing instead of
+   * only after the call is answered.
+   *
+   * @param {RTCPeerConnection|null} peerConnection
+   * @param {{ onAttach?: () => void }} [options]
+   * @returns {boolean} true if audio is bound now
+   */
+  bindRemoteStream(peerConnection, { onAttach } = {}) {
+    if (!this.remoteAudio || !peerConnection) return false;
+    if ("currentRemoteDescription" in peerConnection && peerConnection.currentRemoteDescription === null) {
+      log5.debug("remote description not set yet \u2014 waiting for early media");
+      return false;
     }
-    this.remoteAudio.srcObject = stream;
-    const play = this.remoteAudio.play();
-    if (play?.catch) {
-      play.catch((err) => log5.warn("remote audio autoplay blocked", err));
+    this._clearPendingTrackListener();
+    const attach = () => {
+      if (!this.remoteAudio || !peerConnection) return false;
+      const stream = new MediaStream();
+      peerConnection.getReceivers().forEach((receiver) => {
+        if (receiver.track && receiver.track.kind === "audio") stream.addTrack(receiver.track);
+      });
+      if (!stream.getAudioTracks().length) return false;
+      const current = this.remoteAudio.srcObject;
+      const currentTracks = current instanceof MediaStream ? current.getAudioTracks() : [];
+      const nextTracks = stream.getAudioTracks();
+      const same = currentTracks.length === nextTracks.length && currentTracks.every((track) => nextTracks.includes(track));
+      if (!same) this.remoteAudio.srcObject = stream;
+      const play = this.remoteAudio.play();
+      if (play?.catch) {
+        play.catch((err) => log5.warn("remote audio autoplay blocked", err));
+      }
+      if (this.outputDeviceId) this.setOutputDevice(this.outputDeviceId);
+      onAttach?.();
+      return true;
+    };
+    if (attach()) return true;
+    if (typeof peerConnection.addEventListener === "function") {
+      const onTrack = (event) => {
+        if (event?.track?.kind !== "audio") return;
+        this._clearPendingTrackListener();
+        attach();
+      };
+      peerConnection.addEventListener("track", onTrack);
+      this._pendingTrackListener = { peerConnection, handler: onTrack };
     }
-    if (this.outputDeviceId) this.setOutputDevice(this.outputDeviceId);
+    log5.debug("no remote audio track yet \u2014 waiting for early media");
+    return false;
+  }
+  _clearPendingTrackListener() {
+    const pending = this._pendingTrackListener;
+    if (!pending) return;
+    this._pendingTrackListener = null;
+    pending.peerConnection?.removeEventListener?.("track", pending.handler);
   }
   unbindRemoteStream() {
+    this._clearPendingTrackListener();
     if (this.remoteAudio) this.remoteAudio.srcObject = null;
   }
   /**
@@ -14183,22 +14239,44 @@ var MediaManager = class {
     }
   }
   stopTone() {
-    if (!this.activeTone) return;
-    if (this.activeTone.ringtone) {
-      this.activeTone.ringtone.pause();
-      this.activeTone.ringtone.currentTime = 0;
-    } else {
-      const { oscillators, master, timer } = this.activeTone;
-      clearInterval(timer);
+    const tone = this.activeTone;
+    if (!tone) return;
+    this.activeTone = null;
+    if (tone.ringtone) {
       try {
-        master.gain.value = 0;
-        oscillators.forEach((o) => o.stop());
-        master.disconnect();
+        tone.ringtone.pause();
+        tone.ringtone.currentTime = 0;
       } catch (err) {
-        log5.debug("tone teardown", err);
+        log5.debug("ringtone teardown", err);
+      }
+      return;
+    }
+    const { oscillators = [], master, timer } = tone;
+    if (timer) clearInterval(timer);
+    try {
+      if (master?.gain) {
+        const now = this.toneContext?.currentTime ?? 0;
+        master.gain.cancelScheduledValues(now);
+        master.gain.setValueAtTime(0, now);
+      }
+    } catch (err) {
+      log5.debug("tone gain teardown", err);
+    }
+    for (const osc of oscillators) {
+      try {
+        osc.stop();
+      } catch (err) {
+      }
+      try {
+        osc.disconnect();
+      } catch (err) {
       }
     }
-    this.activeTone = null;
+    try {
+      master?.disconnect();
+    } catch (err) {
+      log5.debug("tone teardown", err);
+    }
   }
 };
 function pickDevice(d) {
@@ -14824,7 +14902,7 @@ var DEFAULT_CONFIG = {
   branding: {
     logo: null,
     company_name: "Auso Call Hub",
-    primary_color: "#0f766e",
+    primary_color: "#192d95",
     show_powered_by: true,
     theme: "default"
   },
@@ -15526,7 +15604,7 @@ function structuredCloneish(obj) {
 // ui/styles.js
 var styles = `
 :host {
-  --auso-primary: #0f766e;
+  --auso-primary: #192d95;
   --auso-primary-ink: #ffffff;
   --auso-bg: #ffffff;
   --auso-surface: #f8fafc;
@@ -15610,7 +15688,7 @@ var styles = `
   background: color-mix(in srgb, var(--auso-primary) 12%, transparent);
   color: var(--auso-primary);
 }
-:host([theme="dark"]) .pill { color: #5eead4; }
+:host([theme="dark"]) .pill { color: #a8b8ff; }
 
 /* ---- Body ---- */
 .body { padding: 10px; display: flex; flex-direction: column; gap: 8px; }
@@ -15795,6 +15873,7 @@ var AusoPhoneElement = class extends HTMLElement {
     this.sipPassword = "";
     this._unsubscribers = [];
     this._rendered = false;
+    this._lastStatusSignature = null;
   }
   connectedCallback() {
     if (!this._rendered) {
@@ -15965,7 +16044,6 @@ var AusoPhoneElement = class extends HTMLElement {
       PhoneEvents.UNHOLD,
       PhoneEvents.MUTE,
       PhoneEvents.UNMUTE,
-      PhoneEvents.CALL_UPDATED,
       PhoneEvents.TRANSFER_STARTED,
       PhoneEvents.TRANSFER_COMPLETED,
       PhoneEvents.TRANSFER_FAILED,
@@ -15985,7 +16063,18 @@ var AusoPhoneElement = class extends HTMLElement {
         this._unsubscribers.push(this.phone.on(e, rerender));
       }
     });
-    this._unsubscribers.push(this.phone.on(PhoneEvents.SESSION_STATE, rerender));
+    this._unsubscribers.push(this.phone.on(PhoneEvents.CALL_UPDATED, (payload) => {
+      if (payload?.calls) this._updateTimers(payload.calls);
+      else this.render();
+    }));
+    this._unsubscribers.push(this.phone.on(PhoneEvents.SESSION_STATE, () => {
+      const status = this.phone.status();
+      if (this._statusSignature(status) === this._lastStatusSignature) {
+        this._updateTimers(status?.calls);
+        return;
+      }
+      this.render();
+    }));
     this._unsubscribers.push(this.phone.on(PhoneEvents.SESSION_ROLE, rerender));
     this._unsubscribers.push(
       this.phone.on(PhoneEvents.ERROR, ({ message, fatal }) => {
@@ -16011,6 +16100,7 @@ var AusoPhoneElement = class extends HTMLElement {
   render() {
     if (!this._root) return;
     const s = this.phone.status();
+    this._lastStatusSignature = this._statusSignature(s);
     const incoming = s.calls.find((c) => c.direction === Direction.INBOUND && c.state === CallState.RINGING);
     const active = s.calls.find((c) => c.state === CallState.ANSWERED || c.state === CallState.HELD) ?? s.calls.find((c) => c.state === CallState.DIALING || c.state === CallState.RINGING);
     const focusedId = this.shadowRoot.activeElement?.id;
@@ -16036,6 +16126,49 @@ var AusoPhoneElement = class extends HTMLElement {
         if (caret != null && el.setSelectionRange) el.setSelectionRange(caret, caret);
       }
     }
+  }
+  /**
+   * A structural fingerprint of the status, ignoring the ticking duration.
+   * Lets the once-a-second heartbeat update the clock in place instead of
+   * replacing the whole view (and the buttons the agent is clicking).
+   */
+  _statusSignature(status) {
+    if (!status) return "";
+    const strip = (call) => {
+      if (!call) return null;
+      const { duration, ...rest } = call;
+      return rest;
+    };
+    return JSON.stringify({
+      connection: status.connection,
+      registration: status.registration,
+      registered: status.registered,
+      extension: status.extension,
+      auto_answer: status.auto_answer,
+      branding: status.branding,
+      mirrored: status.session?.mirrored,
+      transfer: status.transfer,
+      calls: (status.calls ?? []).map(strip),
+      active_call: strip(status.active_call)
+    });
+  }
+  /** Update just the call clock, without touching the controls. */
+  _updateTimers(calls) {
+    if (!this._root || !Array.isArray(calls)) return;
+    const incoming = calls.find((c) => c.direction === Direction.INBOUND && c.state === CallState.RINGING);
+    const active = calls.find((c) => c.state === CallState.ANSWERED || c.state === CallState.HELD) ?? calls.find((c) => c.state === CallState.DIALING || c.state === CallState.RINGING);
+    if (incoming || !active) return;
+    const duration = formatDuration(active.duration);
+    if (this.view === "dtmf") {
+      const label = this._root.querySelector(".call-card .label");
+      if (!label) return;
+      const current = label.textContent ?? "";
+      const next = current.replace(/( · )\d{2}:\d{2}(?::\d{2})?$/, `$1${duration}`);
+      if (next !== current) label.textContent = next;
+      return;
+    }
+    const timer = this._root.querySelector(".call-card .timer");
+    if (timer && timer.textContent !== duration) timer.textContent = duration;
   }
   _renderHeader(s) {
     const b = s.branding;
