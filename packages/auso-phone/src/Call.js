@@ -14,13 +14,16 @@ export class Call {
    * @param {string} params.remoteIdentity  number/extension of the far end
    * @param {string} [params.remoteDisplayName]
    * @param {boolean} [params.consultation] true for the second leg of an attended transfer
+   * @param {Record<string,string|number|null|undefined>} [params.dialParams] CRM dial context
    */
-  constructor({ session, direction, remoteIdentity, remoteDisplayName, consultation = false }) {
+  constructor({ session, direction, remoteIdentity, remoteDisplayName, consultation = false, dialParams = {} }) {
     this.session = session;
     this.direction = direction;
     this.remoteIdentity = remoteIdentity;
     this.remoteDisplayName = remoteDisplayName || '';
     this.consultation = consultation;
+    /** Dial context supplied by the CRM (tenant, campaign, hotline, ...). */
+    this.dialParams = { ...dialParams };
 
     // Prefer the SIP Call-ID so the CRM can correlate with Asterisk CDRs.
     this.id = session?.request?.callId || session?.id || cryptoId();
@@ -74,6 +77,7 @@ export class Call {
       ended_at: this.endedAt ? new Date(this.endedAt).toISOString() : null,
       end_reason: this.endReason,
       customer: this.customer,
+      ...(Object.keys(this.dialParams).length ? { dial_params: this.dialParams } : {}),
     };
   }
 }

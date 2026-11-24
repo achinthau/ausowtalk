@@ -550,7 +550,10 @@ export class AusoPhone {
 
   // ---- Commands (spec §4 / §12) -----------------------------------------
 
-  /** `AusoPhone.call("0772615908")` */
+  /**
+   * `AusoPhone.call("0772615908")`
+   * @param {object} [opts] e.g. `{ params: { dialer, cmphotline, ... } }`
+   */
   call(number, opts) {
     return this._relay('call', [number, opts]) ?? this._callLocal(number, opts);
   }

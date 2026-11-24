@@ -6255,12 +6255,12 @@ var AusoPhoneBundle = (() => {
     function parseHeader(message, data, headerStart, headerEnd) {
       const hcolonIndex = data.indexOf(":", headerStart);
       const headerName = data.substring(headerStart, hcolonIndex).trim();
-      const headerValue = data.substring(hcolonIndex + 1, headerEnd).trim();
+      const headerValue2 = data.substring(hcolonIndex + 1, headerEnd).trim();
       let parsed;
       switch (headerName.toLowerCase()) {
         case "via":
         case "v":
-          message.addHeader("via", headerValue);
+          message.addHeader("via", headerValue2);
           if (message.getHeaders("via").length === 1) {
             parsed = message.parseHeader("Via");
             if (parsed) {
@@ -6273,7 +6273,7 @@ var AusoPhoneBundle = (() => {
           break;
         case "from":
         case "f":
-          message.setHeader("from", headerValue);
+          message.setHeader("from", headerValue2);
           parsed = message.parseHeader("from");
           if (parsed) {
             message.from = parsed;
@@ -6282,7 +6282,7 @@ var AusoPhoneBundle = (() => {
           break;
         case "to":
         case "t":
-          message.setHeader("to", headerValue);
+          message.setHeader("to", headerValue2);
           parsed = message.parseHeader("to");
           if (parsed) {
             message.to = parsed;
@@ -6290,7 +6290,7 @@ var AusoPhoneBundle = (() => {
           }
           break;
         case "record-route":
-          parsed = Grammar.parse(headerValue, "Record_Route");
+          parsed = Grammar.parse(headerValue2, "Record_Route");
           if (parsed === -1) {
             parsed = void 0;
             break;
@@ -6300,21 +6300,21 @@ var AusoPhoneBundle = (() => {
             break;
           }
           parsed.forEach((header) => {
-            message.addHeader("record-route", headerValue.substring(header.position, header.offset));
+            message.addHeader("record-route", headerValue2.substring(header.position, header.offset));
             message.headers["Record-Route"][message.getHeaders("record-route").length - 1].parsed = header.parsed;
           });
           break;
         case "call-id":
         case "i":
-          message.setHeader("call-id", headerValue);
+          message.setHeader("call-id", headerValue2);
           parsed = message.parseHeader("call-id");
           if (parsed) {
-            message.callId = headerValue;
+            message.callId = headerValue2;
           }
           break;
         case "contact":
         case "m":
-          parsed = Grammar.parse(headerValue, "Contact");
+          parsed = Grammar.parse(headerValue2, "Contact");
           if (parsed === -1) {
             parsed = void 0;
             break;
@@ -6324,22 +6324,22 @@ var AusoPhoneBundle = (() => {
             break;
           }
           parsed.forEach((header) => {
-            message.addHeader("contact", headerValue.substring(header.position, header.offset));
+            message.addHeader("contact", headerValue2.substring(header.position, header.offset));
             message.headers.Contact[message.getHeaders("contact").length - 1].parsed = header.parsed;
           });
           break;
         case "content-length":
         case "l":
-          message.setHeader("content-length", headerValue);
+          message.setHeader("content-length", headerValue2);
           parsed = message.parseHeader("content-length");
           break;
         case "content-type":
         case "c":
-          message.setHeader("content-type", headerValue);
+          message.setHeader("content-type", headerValue2);
           parsed = message.parseHeader("content-type");
           break;
         case "cseq":
-          message.setHeader("cseq", headerValue);
+          message.setHeader("cseq", headerValue2);
           parsed = message.parseHeader("cseq");
           if (parsed) {
             message.cseq = parsed.value;
@@ -6349,27 +6349,27 @@ var AusoPhoneBundle = (() => {
           }
           break;
         case "max-forwards":
-          message.setHeader("max-forwards", headerValue);
+          message.setHeader("max-forwards", headerValue2);
           parsed = message.parseHeader("max-forwards");
           break;
         case "www-authenticate":
-          message.setHeader("www-authenticate", headerValue);
+          message.setHeader("www-authenticate", headerValue2);
           parsed = message.parseHeader("www-authenticate");
           break;
         case "proxy-authenticate":
-          message.setHeader("proxy-authenticate", headerValue);
+          message.setHeader("proxy-authenticate", headerValue2);
           parsed = message.parseHeader("proxy-authenticate");
           break;
         case "refer-to":
         case "r":
-          message.setHeader("refer-to", headerValue);
+          message.setHeader("refer-to", headerValue2);
           parsed = message.parseHeader("refer-to");
           if (parsed) {
             message.referTo = parsed;
           }
           break;
         default:
-          message.addHeader(headerName.toLowerCase(), headerValue);
+          message.addHeader(headerName.toLowerCase(), headerValue2);
           parsed = 0;
       }
       if (parsed === void 0) {
@@ -13137,13 +13137,15 @@ var AusoPhoneBundle = (() => {
      * @param {string} params.remoteIdentity  number/extension of the far end
      * @param {string} [params.remoteDisplayName]
      * @param {boolean} [params.consultation] true for the second leg of an attended transfer
+     * @param {Record<string,string|number|null|undefined>} [params.dialParams] CRM dial context
      */
-    constructor({ session, direction, remoteIdentity, remoteDisplayName, consultation = false }) {
+    constructor({ session, direction, remoteIdentity, remoteDisplayName, consultation = false, dialParams = {} }) {
       this.session = session;
       this.direction = direction;
       this.remoteIdentity = remoteIdentity;
       this.remoteDisplayName = remoteDisplayName || "";
       this.consultation = consultation;
+      this.dialParams = { ...dialParams };
       this.id = session?.request?.callId || session?.id || cryptoId();
       this.state = CallState.NEW;
       this.muted = false;
@@ -13187,7 +13189,8 @@ var AusoPhoneBundle = (() => {
         answered_at: this.answeredAt ? new Date(this.answeredAt).toISOString() : null,
         ended_at: this.endedAt ? new Date(this.endedAt).toISOString() : null,
         end_reason: this.endReason,
-        customer: this.customer
+        customer: this.customer,
+        ...Object.keys(this.dialParams).length ? { dial_params: this.dialParams } : {}
       };
     }
   };
@@ -13272,6 +13275,8 @@ var AusoPhoneBundle = (() => {
      * @param {object} [opts]
      * @param {boolean} [opts.consultation] second leg of an attended transfer
      * @param {Record<string,string>} [opts.extraHeaders] e.g. X-Campaign-Id
+     * @param {Record<string,string|number|null|undefined>} [opts.params] CRM dial context,
+     *   also sent as X-Auso-* SIP headers and included in every event payload
      */
     async call(userAgent, number, opts = {}) {
       if (this._isExtensionBusy({ addingConsultation: Boolean(opts.consultation) })) {
@@ -13279,18 +13284,24 @@ var AusoPhoneBundle = (() => {
       }
       const target = this._makeTarget(userAgent, number);
       if (!target) throw new Error(`Invalid dial target: ${number}`);
+      const dialParams = opts.params ?? {};
+      const extraHeaders = [
+        ...toExtraHeaders(opts.extraHeaders) ?? [],
+        ...toDialParamHeaders(dialParams)
+      ];
       const inviter = new Inviter(userAgent, target, {
         sessionDescriptionHandlerOptions: {
           constraints: this.media.getConstraints()
         },
-        extraHeaders: toExtraHeaders(opts.extraHeaders),
+        extraHeaders: extraHeaders.length ? extraHeaders : void 0,
         earlyMedia: true
       });
       const call = new Call({
         session: inviter,
         direction: Direction.OUTBOUND,
         remoteIdentity: number,
-        consultation: Boolean(opts.consultation)
+        consultation: Boolean(opts.consultation),
+        dialParams
       });
       this._track(call);
       if (!call.consultation) this.activeCallId = call.id;
@@ -13601,9 +13612,30 @@ Duration=${duration}`
       this.calls.clear();
     }
   };
+  var DIAL_PARAM_HEADERS = {
+    type: "X-Auso-Type",
+    exten: "X-Auso-Exten",
+    num: "X-Auso-Num",
+    tenant: "X-Auso-Tenant",
+    uid: "X-Auso-Uid",
+    dialer: "X-Auso-Dialer",
+    cmphotline: "X-Auso-Cmphotline"
+  };
   function toExtraHeaders(headers) {
     if (!headers) return void 0;
-    return Object.entries(headers).map(([k, v]) => `${k}: ${v}`);
+    return Object.entries(headers).map(([k, v]) => `${k}: ${headerValue(v)}`);
+  }
+  function toDialParamHeaders(params) {
+    const out = [];
+    for (const [key, header] of Object.entries(DIAL_PARAM_HEADERS)) {
+      const value = params?.[key];
+      if (value === null || value === void 0 || value === "") continue;
+      out.push(`${header}: ${headerValue(value)}`);
+    }
+    return out;
+  }
+  function headerValue(value) {
+    return String(value).replace(/[\r\n]+/g, " ");
   }
   function collectXHeaders(request) {
     const out = {};
@@ -15314,7 +15346,10 @@ registerProcessor('auso-noise-gate', AusoNoiseGate);
       return data;
     }
     // ---- Commands (spec §4 / §12) -----------------------------------------
-    /** `AusoPhone.call("0772615908")` */
+    /**
+     * `AusoPhone.call("0772615908")`
+     * @param {object} [opts] e.g. `{ params: { dialer, cmphotline, ... } }`
+     */
     call(number, opts) {
       return this._relay("call", [number, opts]) ?? this._callLocal(number, opts);
     }

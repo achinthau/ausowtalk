@@ -96,6 +96,8 @@ export class CallManager {
    * @param {object} [opts]
    * @param {boolean} [opts.consultation] second leg of an attended transfer
    * @param {Record<string,string>} [opts.extraHeaders] e.g. X-Campaign-Id
+   * @param {Record<string,string|number|null|undefined>} [opts.params] CRM dial context,
+   *   also sent as X-Auso-* SIP headers and included in every event payload
    */
   async call(userAgent, number, opts = {}) {
     // A consultation leg is the one call allowed alongside another: an attended
@@ -108,11 +110,17 @@ export class CallManager {
     const target = this._makeTarget(userAgent, number);
     if (!target) throw new Error(`Invalid dial target: ${number}`);
 
+    const dialParams = opts.params ?? {};
+    const extraHeaders = [
+      ...(toExtraHeaders(opts.extraHeaders) ?? []),
+      ...toDialParamHeaders(dialParams),
+    ];
+
     const inviter = new Inviter(userAgent, target, {
       sessionDescriptionHandlerOptions: {
         constraints: this.media.getConstraints(),
       },
-      extraHeaders: toExtraHeaders(opts.extraHeaders),
+      extraHeaders: extraHeaders.length ? extraHeaders : undefined,
       earlyMedia: true,
     });
 
@@ -121,6 +129,7 @@ export class CallManager {
       direction: Direction.OUTBOUND,
       remoteIdentity: number,
       consultation: Boolean(opts.consultation),
+      dialParams,
     });
     this._track(call);
     if (!call.consultation) this.activeCallId = call.id;
@@ -515,9 +524,35 @@ export class CallManager {
   }
 }
 
+/** The CRM dial context, mirrored as custom SIP headers on the INVITE. */
+const DIAL_PARAM_HEADERS = {
+  type: 'X-Auso-Type',
+  exten: 'X-Auso-Exten',
+  num: 'X-Auso-Num',
+  tenant: 'X-Auso-Tenant',
+  uid: 'X-Auso-Uid',
+  dialer: 'X-Auso-Dialer',
+  cmphotline: 'X-Auso-Cmphotline',
+};
+
 function toExtraHeaders(headers) {
   if (!headers) return undefined;
-  return Object.entries(headers).map(([k, v]) => `${k}: ${v}`);
+  return Object.entries(headers).map(([k, v]) => `${k}: ${headerValue(v)}`);
+}
+
+export function toDialParamHeaders(params) {
+  const out = [];
+  for (const [key, header] of Object.entries(DIAL_PARAM_HEADERS)) {
+    const value = params?.[key];
+    if (value === null || value === undefined || value === '') continue;
+    out.push(`${header}: ${headerValue(value)}`);
+  }
+  return out;
+}
+
+/** Never let CRM text inject extra SIP headers or fold into the next one. */
+function headerValue(value) {
+  return String(value).replace(/[\r\n]+/g, ' ');
 }
 
 function collectXHeaders(request) {
